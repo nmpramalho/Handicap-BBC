@@ -1,122 +1,172 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useEffect, useState } from "react";
+import { supabase } from "./lib/supabase";
+import Login from "./components/Login";
+import TournamentSite from "./components/TournamentSite";
+import AccessManagement from "./components/AccessManagement";
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [loadingSession, setLoadingSession] = useState(true);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [profileError, setProfileError] = useState("");
+
+  async function loadProfile(userId) {
+    if (!userId) {
+      setProfile(null);
+      setProfileError("");
+      setLoadingProfile(false);
+      return;
+    }
+
+    setLoadingProfile(true);
+    setProfileError("");
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, email, full_name, avatar_url, role, active, created_at, updated_at")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Erro ao carregar o perfil:", error);
+      setProfile(null);
+      setProfileError("Não foi possível consultar o estado da conta.");
+    } else {
+      setProfile(data);
+    }
+
+    setLoadingProfile(false);
+  }
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSession() {
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error) console.error("Erro ao carregar a sessão:", error);
+
+      if (mounted) {
+        setSession(data.session);
+        setLoadingSession(false);
+      }
+    }
+
+    loadSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      if (mounted) {
+        setSession(newSession);
+        setLoadingSession(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    loadProfile(session?.user?.id);
+  }, [session?.user?.id]);
+
+  async function handleLogout() {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("Erro ao terminar a sessão:", error);
+      return;
+    }
+    setSession(null);
+    setProfile(null);
+    setProfileError("");
+  }
+
+  if (loadingSession || loadingProfile) {
+    return (
+      <main className="status-page">
+        <section className="status-card">
+          <div className="status-logo">BBC</div>
+          <h1>Handicap BBC</h1>
+          <p>A verificar a conta...</p>
+          <div className="loading-indicator" aria-label="A carregar">
+            <span /><span /><span />
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (!session) return <Login />;
+
+  if (profileError) {
+    return (
+      <main className="status-page">
+        <section className="status-card">
+          <div className="status-icon status-icon-error">!</div>
+          <h1>Erro ao verificar a conta</h1>
+          <p>{profileError}</p>
+          <div className="status-actions">
+            <button type="button" onClick={() => loadProfile(session.user.id)}>Tentar novamente</button>
+            <button type="button" className="secondary" onClick={handleLogout}>Terminar sessão</button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <main className="status-page">
+        <section className="status-card">
+          <div className="status-icon status-icon-error">!</div>
+          <h1>Pedido de acesso não encontrado</h1>
+          <p>A autenticação Google foi concluída, mas ainda não existe um perfil associado.</p>
+          <div className="account-details"><span>Conta Google</span><strong>{session.user.email}</strong></div>
+          <div className="status-actions">
+            <button type="button" onClick={() => loadProfile(session.user.id)}>Verificar novamente</button>
+            <button type="button" className="secondary" onClick={handleLogout}>Terminar sessão</button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (!profile.active) {
+    const displayName = profile.full_name || profile.email || "Utilizador";
+    const initial = displayName.trim().charAt(0).toUpperCase();
+
+    return (
+      <main className="status-page">
+        <section className="status-card">
+          {profile.avatar_url ? (
+            <img className="profile-avatar" src={profile.avatar_url} alt="Fotografia da conta Google" referrerPolicy="no-referrer" />
+          ) : (
+            <div className="profile-avatar-fallback" aria-hidden="true">{initial}</div>
+          )}
+          <span className="status-badge">Pendente</span>
+          <h1>Conta pendente de aprovação</h1>
+          <p>Olá, <strong>{displayName}</strong>.</p>
+          <p>O pedido foi registado. A conta ficará disponível depois de ser aprovada por um administrador.</p>
+          <div className="account-details"><span>Conta Google</span><strong>{profile.email}</strong></div>
+          <div className="status-actions">
+            <button type="button" onClick={() => loadProfile(session.user.id)}>Verificar aprovação</button>
+            <button type="button" className="secondary" onClick={handleLogout}>Terminar sessão</button>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
+      <TournamentSite profile={profile} onLogout={handleLogout} />
+      {profile.role === "admin" && (
+        <AccessManagement currentProfile={profile} />
+      )}
     </>
-  )
+  );
 }
-
-export default App
