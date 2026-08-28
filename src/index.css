@@ -789,3 +789,40 @@ tbody tr:hover {
     padding: 13px;
   }
 }
+
+/* Alinhamento dos resultados nos cartões dos jogos */
+
+.cards article.card > p {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  min-height: 34px;
+  margin: 6px 0;
+}
+
+.cards article.card > p b {
+  flex-shrink: 0;
+  min-width: 36px;
+  margin-left: auto;
+
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 900;
+  text-align: right;
+}
+
+.cards article.card > p.win {
+  color: #6ee7b7;
+}
+
+.cards article.card > p.win b {
+  float: none;
+  color: #6ee7b7;
+}
+
+.cards article.card > p:not(.win) b {
+  float: none;
+  color: #f8fafc;
+}

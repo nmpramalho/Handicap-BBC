@@ -9,7 +9,6 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-
 import {
   loadData,
   savePlayer,
@@ -18,29 +17,35 @@ import {
   deleteGroup,
   saveMatch,
   deleteMatch,
+  ensureInitialMatches,
+  synchronizeGroupProgression,
 } from "../services/api";
 
-const emptyPlayer = {
+const EMPTY_PLAYER = {
   name: "",
   handicap: 30,
   group_id: "",
   active: true,
 };
 
-const emptyGroup = {
+const EMPTY_GROUP = {
   group_name: "",
 };
 
-const emptyMatch = {
-  group_id: "",
-  round: 1,
-  player_a_id: "",
-  player_b_id: "",
-  score_a: "",
-  score_b: "",
-  completed: false,
-  scheduled_at: "",
-  table_number: "",
+const MATCH_TYPE_LABELS = {
+  initial_1: "Jogo inicial 1",
+  initial_2: "Jogo inicial 2",
+  winners: "Jogo dos vencedores",
+  losers: "Jogo dos derrotados",
+  decisive: "Jogo decisivo",
+};
+
+const MATCH_TYPE_ORDER = {
+  initial_1: 1,
+  initial_2: 2,
+  winners: 3,
+  losers: 4,
+  decisive: 5,
 };
 
 function formatDateTimeForInput(value) {
@@ -49,184 +54,152 @@ function formatDateTimeForInput(value) {
   }
 
   const date = new Date(value);
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60 * 1000);
 
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  const timezoneOffset = date.getTimezoneOffset() * 60000;
-
-  return new Date(date.getTime() - timezoneOffset)
-    .toISOString()
-    .slice(0, 16);
+  return localDate.toISOString().slice(0, 16);
 }
 
-function formatDateTimeForDatabase(value) {
-  if (!value) {
-    return null;
+function hasReachedHandicap(score, player) {
+  return score !== null && Number(score) >= Number(player.handicap);
+}
+
+function isMatchComplete(match, playersById) {
+  if (!match || match.score_a === null || match.score_b === null) {
+    return false;
   }
 
-  const date = new Date(value);
+  const playerA = playersById[match.player_a_id];
+  const playerB = playersById[match.player_b_id];
 
-  if (Number.isNaN(date.getTime())) {
-    return null;
+  if (!playerA || !playerB) {
+    return false;
   }
 
-  return date.toISOString();
+  return (
+    hasReachedHandicap(match.score_a, playerA) !==
+    hasReachedHandicap(match.score_b, playerB)
+  );
+}
+
+function getWinnerId(match, playersById) {
+  const playerA = playersById[match.player_a_id];
+
+  return hasReachedHandicap(match.score_a, playerA)
+    ? match.player_a_id
+    : match.player_b_id;
+}
+
+function getQualification(wins, losses) {
+  if (wins >= 2) {
+    return "Diamante";
+  }
+
+  if (losses >= 2) {
+    return "Platina";
+  }
+
+  if (wins === 1 && losses === 1) {
+    return "Jogo decisivo";
+  }
+
+  return "Por decidir";
 }
 
 export default function TournamentSite({ profile, onLogout }) {
-  const [tab, setTab] = useState("groups");
-
+  const [activeTab, setActiveTab] = useState("groups");
   const [data, setData] = useState({
     groups: [],
     players: [],
     matches: [],
   });
-
-  const [selected, setSelected] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState("");
   const [busy, setBusy] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [edit, setEdit] = useState(null);
 
-  const admin = profile.role === "admin";
-  const referee = admin || profile.role === "referee";
+  const isAdmin = profile.role === "admin";
+  const canManageMatches = isAdmin || profile.role === "referee";
 
-  async function refresh() {
+  async function refreshData() {
     try {
       setBusy(true);
       setError("");
 
-      const loadedData = await loadData();
+      const newData = await loadData();
 
-      setData(loadedData);
-
-      setSelected((currentSelection) => {
+      setData(newData);
+      setSelectedGroupId((current) => {
         if (
-          currentSelection &&
-          loadedData.groups.some(
-            (group) => group.id === currentSelection
-          )
+          current &&
+          newData.groups.some((group) => group.id === current)
         ) {
-          return currentSelection;
+          return current;
         }
 
-        return loadedData.groups[0]?.id || "";
+        return newData.groups[0]?.id || "";
       });
-    } catch (loadError) {
-      console.error("Erro ao carregar dados:", loadError);
-
-      setError(
-        loadError.message ||
-          "Não foi possível carregar os dados do torneio."
-      );
+    } catch (refreshError) {
+      console.error(refreshError);
+      setError(refreshError.message);
     } finally {
       setBusy(false);
     }
   }
 
   useEffect(() => {
-    refresh();
+    refreshData();
   }, []);
 
-  const playersById = useMemo(() => {
-    return Object.fromEntries(
-      data.players.map((player) => [
-        player.id,
-        player,
-      ])
-    );
-  }, [data.players]);
+  useEffect(() => {
+    async function prepareSelectedGroup() {
+      if (!selectedGroupId || busy) {
+        return;
+      }
 
-  const selectedGroup = useMemo(() => {
-    return data.groups.find(
-      (group) => group.id === selected
-    );
-  }, [data.groups, selected]);
+      try {
+        await ensureInitialMatches(selectedGroupId);
+        await synchronizeGroupProgression(selectedGroupId);
 
-  const groupPlayers = useMemo(() => {
-    return data.players.filter(
-      (player) =>
-        player.group_id === selected &&
-        player.active
-    );
-  }, [data.players, selected]);
-
-  const groupMatches = useMemo(() => {
-    return data.matches
-      .filter(
-        (match) => match.group_id === selected
-      )
-      .sort((firstMatch, secondMatch) => {
-        const roundDifference =
-          firstMatch.round - secondMatch.round;
-
-        if (roundDifference !== 0) {
-          return roundDifference;
-        }
-
-        const firstDate = firstMatch.scheduled_at
-          ? new Date(firstMatch.scheduled_at).getTime()
-          : Number.MAX_SAFE_INTEGER;
-
-        const secondDate = secondMatch.scheduled_at
-          ? new Date(secondMatch.scheduled_at).getTime()
-          : Number.MAX_SAFE_INTEGER;
-
-        return firstDate - secondDate;
-      });
-  }, [data.matches, selected]);
-
-  function isMatchComplete(match) {
-    const playerA =
-      playersById[match.player_a_id];
-
-    const playerB =
-      playersById[match.player_b_id];
-
-    if (
-      !playerA ||
-      !playerB ||
-      match.score_a === null ||
-      match.score_a === undefined ||
-      match.score_b === null ||
-      match.score_b === undefined
-    ) {
-      return false;
+        const newData = await loadData();
+        setData(newData);
+      } catch (preparationError) {
+        console.error(preparationError);
+        setError(preparationError.message);
+      }
     }
 
-    const playerAReachedHandicap =
-      Number(match.score_a) >=
-      Number(playerA.handicap);
+    prepareSelectedGroup();
+  }, [selectedGroupId]);
 
-    const playerBReachedHandicap =
-      Number(match.score_b) >=
-      Number(playerB.handicap);
+  const playersById = useMemo(
+    () =>
+      Object.fromEntries(
+        data.players.map((player) => [player.id, player])
+      ),
+    [data.players]
+  );
 
-    return (
-      playerAReachedHandicap !==
-      playerBReachedHandicap
-    );
-  }
+  const selectedGroup = data.groups.find(
+    (group) => group.id === selectedGroupId
+  );
 
-  function getMatchWinner(match) {
-    if (!isMatchComplete(match)) {
-      return null;
-    }
+  const groupPlayers = data.players.filter(
+    (player) =>
+      player.group_id === selectedGroupId && player.active
+  );
 
-    const playerA =
-      playersById[match.player_a_id];
-
-    if (
-      Number(match.score_a) >=
-      Number(playerA.handicap)
-    ) {
-      return match.player_a_id;
-    }
-
-    return match.player_b_id;
-  }
+  const groupMatches = useMemo(
+    () =>
+      data.matches
+        .filter((match) => match.group_id === selectedGroupId)
+        .sort(
+          (first, second) =>
+            (MATCH_TYPE_ORDER[first.match_type] || 99) -
+            (MATCH_TYPE_ORDER[second.match_type] || 99)
+        ),
+    [data.matches, selectedGroupId]
+  );
 
   const standings = useMemo(() => {
     return groupPlayers
@@ -237,272 +210,118 @@ export default function TournamentSite({ profile, onLogout }) {
 
         groupMatches
           .filter((match) =>
-            isMatchComplete(match)
+            isMatchComplete(match, playersById)
           )
           .forEach((match) => {
-            const playerParticipated =
+            const participated =
               match.player_a_id === player.id ||
               match.player_b_id === player.id;
 
-            if (!playerParticipated) {
+            if (!participated) {
               return;
             }
 
             played += 1;
 
-            if (
-              getMatchWinner(match) === player.id
-            ) {
+            if (getWinnerId(match, playersById) === player.id) {
               wins += 1;
             } else {
               losses += 1;
             }
           });
 
-        let destination = "Por decidir";
-
-        if (wins === 2) {
-          destination = "Diamante";
-        }
-
-        if (losses === 2) {
-          destination = "Platina";
-        }
-
         return {
           ...player,
           played,
           wins,
           losses,
-          destination,
+          qualification: getQualification(wins, losses),
         };
       })
-      .sort((firstPlayer, secondPlayer) => {
-        return (
-          secondPlayer.wins - firstPlayer.wins ||
-          firstPlayer.losses -
-            secondPlayer.losses ||
-          firstPlayer.name.localeCompare(
-            secondPlayer.name
-          )
-        );
-      });
-  }, [
-    groupPlayers,
-    groupMatches,
-    playersById,
-  ]);
-
-  function validatePlayer(player) {
-    if (!player.name?.trim()) {
-      throw new Error(
-        "O nome do jogador é obrigatório."
+      .sort(
+        (first, second) =>
+          second.wins - first.wins ||
+          first.losses - second.losses ||
+          first.name.localeCompare(second.name)
       );
-    }
+  }, [groupPlayers, groupMatches, playersById]);
 
-    if (
-      !Number.isInteger(Number(player.handicap)) ||
-      Number(player.handicap) < 1
-    ) {
-      throw new Error(
-        "O handicap deve ser um número inteiro superior a zero."
-      );
-    }
+  function openMatchForEditing(match) {
+    setEdit({
+      id: match.id,
+      group_id: match.group_id,
+      round: match.round,
+      match_type: match.match_type,
+      player_a_id: match.player_a_id,
+      player_b_id: match.player_b_id,
+      score_a: match.score_a ?? "",
+      score_b: match.score_b ?? "",
+      completed: match.completed,
+      scheduled_at: formatDateTimeForInput(
+        match.scheduled_at
+      ),
+      table_number: match.table_number ?? "",
+    });
   }
 
-  function validateGroup(group) {
-    if (!group.group_name?.trim()) {
-      throw new Error(
-        "O nome do grupo é obrigatório."
-      );
-    }
-  }
-
-  function validateMatch(match) {
-    if (!match.group_id) {
-      throw new Error(
-        "É obrigatório selecionar um grupo."
-      );
-    }
-
-    if (
-      !Number.isInteger(Number(match.round)) ||
-      Number(match.round) < 1
-    ) {
-      throw new Error(
-        "A jornada deve ser um número inteiro superior a zero."
-      );
-    }
-
-    if (!match.player_a_id) {
-      throw new Error(
-        "É obrigatório selecionar o Jogador A."
-      );
-    }
-
-    if (!match.player_b_id) {
-      throw new Error(
-        "É obrigatório selecionar o Jogador B."
-      );
-    }
-
-    if (
-      match.player_a_id ===
-      match.player_b_id
-    ) {
-      throw new Error(
-        "Os dois jogadores têm de ser diferentes."
-      );
-    }
-
-    const playerA =
-      playersById[match.player_a_id];
-
-    const playerB =
-      playersById[match.player_b_id];
-
-    if (
-      playerA?.group_id !== match.group_id ||
-      playerB?.group_id !== match.group_id
-    ) {
-      throw new Error(
-        "Os dois jogadores têm de pertencer ao grupo selecionado."
-      );
-    }
-
-    if (
-      match.table_number !== "" &&
-      match.table_number !== null &&
-      Number(match.table_number) < 1
-    ) {
-      throw new Error(
-        "O número da mesa deve ser superior a zero."
-      );
-    }
-  }
-
-  async function submit(kind) {
+  async function submitEdit() {
     try {
-      setSaving(true);
       setError("");
 
-      if (kind === "player") {
-        validatePlayer(edit);
+      if (edit.group_name !== undefined) {
+        await saveGroup(edit);
+      } else if (edit.handicap !== undefined) {
+        await savePlayer(edit);
+      } else {
+        const playerA = playersById[edit.player_a_id];
+        const playerB = playersById[edit.player_b_id];
 
-        const playerToSave = {
-          ...edit,
-          name: edit.name.trim(),
-          handicap: Number(edit.handicap),
-          group_id: edit.group_id || null,
-          active: Boolean(edit.active),
-        };
+        if (!playerA || !playerB) {
+          throw new Error("Os jogadores do jogo não são válidos.");
+        }
 
-        await savePlayer(playerToSave);
-      }
+        const scoreA =
+          edit.score_a === "" ? null : Number(edit.score_a);
+        const scoreB =
+          edit.score_b === "" ? null : Number(edit.score_b);
 
-      if (kind === "group") {
-        validateGroup(edit);
-
-        const groupToSave = {
-          ...edit,
-          group_name: edit.group_name
-            .trim()
-            .toUpperCase(),
-        };
-
-        await saveGroup(groupToSave);
-      }
-
-      if (kind === "match") {
-        validateMatch(edit);
-
-        const playerA =
-          playersById[edit.player_a_id];
-
-        const playerB =
-          playersById[edit.player_b_id];
-
-        const hasScoreA =
-          edit.score_a !== "" &&
-          edit.score_a !== null &&
-          edit.score_a !== undefined;
-
-        const hasScoreB =
-          edit.score_b !== "" &&
-          edit.score_b !== null &&
-          edit.score_b !== undefined;
-
-        const scoreA = hasScoreA
-          ? Number(edit.score_a)
-          : null;
-
-        const scoreB = hasScoreB
-          ? Number(edit.score_b)
-          : null;
-
-        const playerAReachedHandicap =
-          hasScoreA &&
-          scoreA >= Number(playerA.handicap);
-
-        const playerBReachedHandicap =
-          hasScoreB &&
-          scoreB >= Number(playerB.handicap);
+        const playerAReached = hasReachedHandicap(scoreA, playerA);
+        const playerBReached = hasReachedHandicap(scoreB, playerB);
 
         const completed =
-          hasScoreA &&
-          hasScoreB &&
-          playerAReachedHandicap !==
-            playerBReachedHandicap;
+          scoreA !== null &&
+          scoreB !== null &&
+          playerAReached !== playerBReached;
 
-        const matchToSave = {
-          id: edit.id,
-          group_id: edit.group_id,
-          round: Number(edit.round),
-          player_a_id: edit.player_a_id,
-          player_b_id: edit.player_b_id,
-          score_a: scoreA,
-          score_b: scoreB,
+        if (
+          scoreA !== null &&
+          scoreB !== null &&
+          !completed
+        ) {
+          throw new Error(
+            "Para concluir o jogo, exatamente um jogador tem de atingir o respetivo handicap."
+          );
+        }
+
+        await saveMatch({
+          ...edit,
           completed,
-          scheduled_at:
-            formatDateTimeForDatabase(
-              edit.scheduled_at
-            ),
-          table_number:
-            edit.table_number === "" ||
-            edit.table_number === null ||
-            edit.table_number === undefined
-              ? null
-              : Number(edit.table_number),
-        };
+        });
 
-        console.log(
-          "Jogo enviado para gravação:",
-          matchToSave
-        );
-
-        await saveMatch(matchToSave);
+        await synchronizeGroupProgression(edit.group_id);
       }
 
       setEdit(null);
-      await refresh();
-    } catch (saveError) {
-      console.error(
-        "Erro ao guardar registo:",
-        saveError
-      );
-
-      setError(
-        saveError.message ||
-          "Não foi possível guardar o registo."
-      );
-    } finally {
-      setSaving(false);
+      await refreshData();
+    } catch (submitError) {
+      console.error(submitError);
+      setError(submitError.message);
     }
   }
 
-  async function remove(kind, id) {
+  async function removeRecord(type, id) {
     const confirmed = window.confirm(
-      "Eliminar este registo?"
+      "Tens a certeza de que queres eliminar este registo?"
     );
 
     if (!confirmed) {
@@ -512,113 +331,48 @@ export default function TournamentSite({ profile, onLogout }) {
     try {
       setError("");
 
-      if (kind === "player") {
+      if (type === "player") {
         await deletePlayer(id);
       }
 
-      if (kind === "group") {
+      if (type === "group") {
         await deleteGroup(id);
       }
 
-      if (kind === "match") {
+      if (type === "match") {
         await deleteMatch(id);
       }
 
-      await refresh();
-    } catch (deleteError) {
-      console.error(
-        "Erro ao eliminar registo:",
-        deleteError
-      );
-
-      setError(
-        deleteError.message ||
-          "Não foi possível eliminar o registo."
-      );
+      await refreshData();
+    } catch (removeError) {
+      console.error(removeError);
+      setError(removeError.message);
     }
   }
-
-  function openNewMatch() {
-    setEdit({
-      ...emptyMatch,
-      group_id: selected,
-    });
-  }
-
-  function openMatchForEditing(match) {
-    setEdit({
-      id: match.id,
-      group_id: match.group_id,
-      round: match.round,
-      player_a_id: match.player_a_id,
-      player_b_id: match.player_b_id,
-      score_a: match.score_a ?? "",
-      score_b: match.score_b ?? "",
-      completed: match.completed,
-      scheduled_at:
-        formatDateTimeForInput(
-          match.scheduled_at
-        ),
-      table_number:
-        match.table_number ?? "",
-    });
-  }
-
-  function getEditType() {
-    if (!edit) {
-      return null;
-    }
-
-    if (
-      Object.prototype.hasOwnProperty.call(
-        edit,
-        "player_a_id"
-      )
-    ) {
-      return "match";
-    }
-
-    if (
-      Object.prototype.hasOwnProperty.call(
-        edit,
-        "handicap"
-      )
-    ) {
-      return "player";
-    }
-
-    return "group";
-  }
-
-  const editType = getEditType();
 
   return (
     <div>
       <header>
         <div>
           <h1>Handicap BBC</h1>
-
           <small>
-            {profile.full_name || profile.email}
-            {" · "}
-            {profile.role}
+            {profile.full_name || profile.email} · {profile.role}
           </small>
         </div>
 
         <div className="actions">
           <button
-            type="button"
             className="secondary"
-            onClick={refresh}
-            disabled={busy}
+            type="button"
+            onClick={refreshData}
           >
             <RefreshCw size={16} />
             Atualizar
           </button>
 
           <button
-            type="button"
             className="secondary"
+            type="button"
             onClick={onLogout}
           >
             <LogOut size={16} />
@@ -628,62 +382,62 @@ export default function TournamentSite({ profile, onLogout }) {
       </header>
 
       <nav>
-        {[
-          ["groups", Trophy, "Grupos"],
-          ["matches", Swords, "Jogos"],
-          ["players", Users, "Jogadores"],
-          [
-            "admin",
-            Settings,
-            "Administração",
-          ],
-        ]
-          .filter(
-            ([id]) =>
-              id !== "admin" || admin
-          )
-          .map(([id, Icon, label]) => (
-            <button
-              type="button"
-              key={id}
-              className={
-                tab === id ? "active" : ""
-              }
-              onClick={() => setTab(id)}
-            >
-              <Icon size={18} />
-              {label}
-            </button>
-          ))}
+        <button
+          type="button"
+          className={activeTab === "groups" ? "active" : ""}
+          onClick={() => setActiveTab("groups")}
+        >
+          <Trophy size={18} />
+          Grupos
+        </button>
+
+        <button
+          type="button"
+          className={activeTab === "matches" ? "active" : ""}
+          onClick={() => setActiveTab("matches")}
+        >
+          <Swords size={18} />
+          Jogos
+        </button>
+
+        <button
+          type="button"
+          className={activeTab === "players" ? "active" : ""}
+          onClick={() => setActiveTab("players")}
+        >
+          <Users size={18} />
+          Jogadores
+        </button>
+
+        {isAdmin && (
+          <button
+            type="button"
+            className={activeTab === "admin" ? "active" : ""}
+            onClick={() => setActiveTab("admin")}
+          >
+            <Settings size={18} />
+            Administração
+          </button>
+        )}
       </nav>
 
       <main>
-        {error && (
-          <p className="error">
-            {error}
-          </p>
-        )}
+        {error && <p className="error">{error}</p>}
 
         {busy ? (
-          <div className="card">
-            A carregar...
-          </div>
+          <div className="card">A carregar...</div>
         ) : (
           <>
-            {tab !== "admin" && (
+            {activeTab !== "admin" && (
               <div className="groups">
                 {data.groups.map((group) => (
                   <button
-                    type="button"
                     key={group.id}
+                    type="button"
                     className={
-                      selected === group.id
-                        ? "active"
-                        : ""
+                      selectedGroupId === group.id ? "active" : ""
                     }
-                    onClick={() =>
-                      setSelected(group.id)
-                    }
+                    onClick={() => setSelectedGroupId(group.id)}
                   >
                     {group.group_name}
                   </button>
@@ -691,12 +445,11 @@ export default function TournamentSite({ profile, onLogout }) {
               </div>
             )}
 
-            {tab === "groups" && (
+            {activeTab === "groups" && (
               <section className="grid2">
                 <div className="card">
                   <h2>
-                    Classificação · Grupo{" "}
-                    {selectedGroup?.group_name}
+                    Classificação · Grupo {selectedGroup?.group_name}
                   </h2>
 
                   <div className="tablewrap">
@@ -713,37 +466,16 @@ export default function TournamentSite({ profile, onLogout }) {
                       </thead>
 
                       <tbody>
-                        {standings.map(
-                          (player) => (
-                            <tr key={player.id}>
-                              <td>
-                                {player.name}
-                              </td>
-
-                              <td>
-                                {player.handicap}
-                              </td>
-
-                              <td>
-                                {player.played}
-                              </td>
-
-                              <td>
-                                {player.wins}
-                              </td>
-
-                              <td>
-                                {player.losses}
-                              </td>
-
-                              <td>
-                                {
-                                  player.destination
-                                }
-                              </td>
-                            </tr>
-                          )
-                        )}
+                        {standings.map((player) => (
+                          <tr key={player.id}>
+                            <td>{player.name}</td>
+                            <td>{player.handicap}</td>
+                            <td>{player.played}</td>
+                            <td>{player.wins}</td>
+                            <td>{player.losses}</td>
+                            <td>{player.qualification}</td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -752,44 +484,26 @@ export default function TournamentSite({ profile, onLogout }) {
                 <div className="card">
                   <h2>Jogos do grupo</h2>
 
-                  {groupMatches.length ===
-                    0 && (
-                    <p>
-                      Ainda não existem jogos
-                      neste grupo.
-                    </p>
-                  )}
-
                   {groupMatches.map((match) => {
-                    const playerA =
-                      playersById[
-                        match.player_a_id
-                      ];
-
-                    const playerB =
-                      playersById[
-                        match.player_b_id
-                      ];
+                    const playerA = playersById[match.player_a_id];
+                    const playerB = playersById[match.player_b_id];
+                    const completed = isMatchComplete(
+                      match,
+                      playersById
+                    );
 
                     return (
-                      <div
-                        className="matchline"
-                        key={match.id}
-                      >
+                      <div className="matchline" key={match.id}>
                         <span>
-                          Jornada {match.round}
-
+                          {MATCH_TYPE_LABELS[match.match_type] ||
+                            `Jornada ${match.round}`}
                           <small>
-                            {playerA?.name ||
-                              "Jogador A"}{" "}
-                            vs{" "}
-                            {playerB?.name ||
-                              "Jogador B"}
+                            {playerA?.name} vs {playerB?.name}
                           </small>
                         </span>
 
                         <b>
-                          {isMatchComplete(match)
+                          {completed
                             ? `${match.score_a}-${match.score_b}`
                             : "Pendente"}
                         </b>
@@ -800,71 +514,38 @@ export default function TournamentSite({ profile, onLogout }) {
               </section>
             )}
 
-            {tab === "matches" && (
+            {activeTab === "matches" && (
               <section>
                 <div className="sectionhead">
-                  <h2>
-                    Jogos · Grupo{" "}
-                    {selectedGroup?.group_name}
-                  </h2>
-
-                  {referee && (
-                    <button
-                      type="button"
-                      onClick={openNewMatch}
-                    >
-                      <Plus size={16} />
-                      Novo jogo
-                    </button>
-                  )}
+                  <h2>Jogos · Grupo {selectedGroup?.group_name}</h2>
                 </div>
 
                 <div className="cards">
-                  {groupMatches.length ===
-                    0 && (
-                    <article className="card">
-                      <p>
-                        Ainda não existem jogos
-                        neste grupo.
-                      </p>
-                    </article>
-                  )}
-
                   {groupMatches.map((match) => {
-                    const playerA =
-                      playersById[
-                        match.player_a_id
-                      ];
-
-                    const playerB =
-                      playersById[
-                        match.player_b_id
-                      ];
-
-                    const completed =
-                      isMatchComplete(match);
-
-                    const matchWinner =
-                      getMatchWinner(match);
+                    const playerA = playersById[match.player_a_id];
+                    const playerB = playersById[match.player_b_id];
+                    const completed = isMatchComplete(
+                      match,
+                      playersById
+                    );
+                    const winnerId = completed
+                      ? getWinnerId(match, playersById)
+                      : null;
 
                     return (
-                      <article
-                        className="card"
-                        key={match.id}
-                      >
+                      <article className="card" key={match.id}>
                         <h3>
-                          Jornada {match.round}
+                          {MATCH_TYPE_LABELS[match.match_type] ||
+                            `Jornada ${match.round}`}
                         </h3>
 
                         <small>
+                          Jornada {match.round}
                           {match.scheduled_at
-                            ? new Date(
+                            ? ` · ${new Date(
                                 match.scheduled_at
-                              ).toLocaleString(
-                                "pt-PT"
-                              )
-                            : "Sem horário"}
-
+                              ).toLocaleString("pt-PT")}`
+                            : " · Sem horário"}
                           {match.table_number
                             ? ` · Mesa ${match.table_number}`
                             : ""}
@@ -872,68 +553,40 @@ export default function TournamentSite({ profile, onLogout }) {
 
                         <p
                           className={
-                            completed &&
-                            matchWinner ===
-                              playerA?.id
-                              ? "win"
-                              : ""
+                            winnerId === playerA?.id ? "win" : ""
                           }
                         >
-                          {playerA?.name ||
-                            "Jogador A"}{" "}
-                          ({playerA?.handicap ?? "–"})
-                          {" "}
-                          <b>
-                            {match.score_a ?? "–"}
-                          </b>
+                          {playerA?.name} ({playerA?.handicap})
+                          <b>{match.score_a ?? "–"}</b>
                         </p>
 
                         <p
                           className={
-                            completed &&
-                            matchWinner ===
-                              playerB?.id
-                              ? "win"
-                              : ""
+                            winnerId === playerB?.id ? "win" : ""
                           }
                         >
-                          {playerB?.name ||
-                            "Jogador B"}{" "}
-                          ({playerB?.handicap ?? "–"})
-                          {" "}
-                          <b>
-                            {match.score_b ?? "–"}
-                          </b>
+                          {playerB?.name} ({playerB?.handicap})
+                          <b>{match.score_b ?? "–"}</b>
                         </p>
 
-                        {referee && (
+                        {canManageMatches && (
                           <div className="actions">
                             <button
                               type="button"
-                              onClick={() =>
-                                openMatchForEditing(
-                                  match
-                                )
-                              }
+                              onClick={() => openMatchForEditing(match)}
                             >
                               Editar
                             </button>
 
-                            {admin && (
+                            {isAdmin && (
                               <button
-                                type="button"
                                 className="danger"
+                                type="button"
                                 onClick={() =>
-                                  remove(
-                                    "match",
-                                    match.id
-                                  )
+                                  removeRecord("match", match.id)
                                 }
-                                aria-label="Eliminar jogo"
                               >
-                                <Trash2
-                                  size={15}
-                                />
+                                <Trash2 size={15} />
                               </button>
                             )}
                           </div>
@@ -945,19 +598,15 @@ export default function TournamentSite({ profile, onLogout }) {
               </section>
             )}
 
-            {tab === "players" && (
+            {activeTab === "players" && (
               <section>
                 <div className="sectionhead">
                   <h2>Jogadores</h2>
 
-                  {admin && (
+                  {isAdmin && (
                     <button
                       type="button"
-                      onClick={() =>
-                        setEdit({
-                          ...emptyPlayer,
-                        })
-                      }
+                      onClick={() => setEdit({ ...EMPTY_PLAYER })}
                     >
                       <Plus size={16} />
                       Novo jogador
@@ -973,74 +622,47 @@ export default function TournamentSite({ profile, onLogout }) {
                         <th>Grupo</th>
                         <th>Handicap</th>
                         <th>Ativo</th>
-
-                        {admin && (
-                          <th>Ações</th>
-                        )}
+                        {isAdmin && <th>Ações</th>}
                       </tr>
                     </thead>
 
                     <tbody>
-                      {data.players.map(
-                        (player) => (
-                          <tr key={player.id}>
+                      {data.players.map((player) => (
+                        <tr key={player.id}>
+                          <td>{player.name}</td>
+                          <td>
+                            {data.groups.find(
+                              (group) => group.id === player.group_id
+                            )?.group_name || "–"}
+                          </td>
+                          <td>{player.handicap}</td>
+                          <td>{player.active ? "Sim" : "Não"}</td>
+                          {isAdmin && (
                             <td>
-                              {player.name}
+                              <button
+                                type="button"
+                                onClick={() => setEdit({ ...player })}
+                              >
+                                Editar
+                              </button>
                             </td>
-
-                            <td>
-                              {data.groups.find(
-                                (group) =>
-                                  group.id ===
-                                  player.group_id
-                              )?.group_name || "–"}
-                            </td>
-
-                            <td>
-                              {player.handicap}
-                            </td>
-
-                            <td>
-                              {player.active
-                                ? "Sim"
-                                : "Não"}
-                            </td>
-
-                            {admin && (
-                              <td>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setEdit({
-                                      ...player,
-                                    })
-                                  }
-                                >
-                                  Editar
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        )
-                      )}
+                          )}
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
               </section>
             )}
 
-            {tab === "admin" && admin && (
+            {activeTab === "admin" && isAdmin && (
               <section>
                 <div className="sectionhead">
                   <h2>Grupos</h2>
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setEdit({
-                        ...emptyGroup,
-                      })
-                    }
+                    onClick={() => setEdit({ ...EMPTY_GROUP })}
                   >
                     <Plus size={16} />
                     Novo grupo
@@ -1049,36 +671,23 @@ export default function TournamentSite({ profile, onLogout }) {
 
                 <div className="cards">
                   {data.groups.map((group) => (
-                    <article
-                      className="card"
-                      key={group.id}
-                    >
-                      <h3>
-                        Grupo {group.group_name}
-                      </h3>
+                    <article className="card" key={group.id}>
+                      <h3>Grupo {group.group_name}</h3>
 
                       <div className="actions">
                         <button
                           type="button"
-                          onClick={() =>
-                            setEdit({
-                              ...group,
-                            })
-                          }
+                          onClick={() => setEdit({ ...group })}
                         >
                           Editar
                         </button>
 
                         <button
-                          type="button"
                           className="danger"
+                          type="button"
                           onClick={() =>
-                            remove(
-                              "group",
-                              group.id
-                            )
+                            removeRecord("group", group.id)
                           }
-                          aria-label="Eliminar grupo"
                         >
                           <Trash2 size={15} />
                         </button>
@@ -1096,41 +705,32 @@ export default function TournamentSite({ profile, onLogout }) {
         <div className="modal">
           <div className="card dialog">
             <h2>
-              {editType === "match"
-                ? edit.id
-                  ? "Editar jogo"
-                  : "Novo jogo"
-                : editType === "player"
-                  ? edit.id
-                    ? "Editar jogador"
-                    : "Novo jogador"
-                  : edit.id
-                    ? "Editar grupo"
-                    : "Novo grupo"}
+              {edit.match_type !== undefined
+                ? "Editar jogo"
+                : edit.handicap !== undefined
+                  ? "Editar jogador"
+                  : "Editar grupo"}
             </h2>
 
-            {editType === "group" && (
+            {edit.group_name !== undefined && (
               <label>
                 Nome do grupo
-
                 <input
                   value={edit.group_name}
                   onChange={(event) =>
                     setEdit({
                       ...edit,
-                      group_name:
-                        event.target.value.toUpperCase(),
+                      group_name: event.target.value.toUpperCase(),
                     })
                   }
                 />
               </label>
             )}
 
-            {editType === "player" && (
+            {edit.handicap !== undefined && (
               <>
                 <label>
                   Nome
-
                   <input
                     value={edit.name}
                     onChange={(event) =>
@@ -1144,7 +744,6 @@ export default function TournamentSite({ profile, onLogout }) {
 
                 <label>
                   Handicap
-
                   <input
                     type="number"
                     min="1"
@@ -1152,9 +751,7 @@ export default function TournamentSite({ profile, onLogout }) {
                     onChange={(event) =>
                       setEdit({
                         ...edit,
-                        handicap: Number(
-                          event.target.value
-                        ),
+                        handicap: Number(event.target.value),
                       })
                     }
                   />
@@ -1162,32 +759,21 @@ export default function TournamentSite({ profile, onLogout }) {
 
                 <label>
                   Grupo
-
                   <select
                     value={edit.group_id || ""}
                     onChange={(event) =>
                       setEdit({
                         ...edit,
-                        group_id:
-                          event.target.value ||
-                          null,
+                        group_id: event.target.value || null,
                       })
                     }
                   >
-                    <option value="">
-                      Sem grupo
-                    </option>
-
-                    {data.groups.map(
-                      (group) => (
-                        <option
-                          key={group.id}
-                          value={group.id}
-                        >
-                          {group.group_name}
-                        </option>
-                      )
-                    )}
+                    <option value="">Sem grupo</option>
+                    {data.groups.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.group_name}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
@@ -1198,115 +784,47 @@ export default function TournamentSite({ profile, onLogout }) {
                     onChange={(event) =>
                       setEdit({
                         ...edit,
-                        active:
-                          event.target.checked,
+                        active: event.target.checked,
                       })
                     }
                   />
-
-                  {" "}Ativo
+                  Ativo
                 </label>
               </>
             )}
 
-            {editType === "match" && (
+            {edit.match_type !== undefined && (
               <>
                 <label>
-                  Grupo
-
-                  <select
-                    value={edit.group_id}
-                    onChange={(event) =>
-                      setEdit({
-                        ...edit,
-                        group_id:
-                          event.target.value,
-                        player_a_id: "",
-                        player_b_id: "",
-                      })
-                    }
-                  >
-                    <option value="">
-                      Selecionar grupo
-                    </option>
-
-                    {data.groups.map(
-                      (group) => (
-                        <option
-                          key={group.id}
-                          value={group.id}
-                        >
-                          {group.group_name}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </label>
-
-                <label>
-                  Jornada
-
+                  Tipo de jogo
                   <input
-                    type="number"
-                    min="1"
-                    value={edit.round}
-                    onChange={(event) =>
-                      setEdit({
-                        ...edit,
-                        round:
-                          event.target.value,
-                      })
+                    value={
+                      MATCH_TYPE_LABELS[edit.match_type] ||
+                      edit.match_type
                     }
+                    disabled
                   />
                 </label>
 
                 <label>
                   Jogador A
-
-                  <select
-                    value={edit.player_a_id}
-                    onChange={(event) =>
-                      setEdit({
-                        ...edit,
-                        player_a_id:
-                          event.target.value,
-                      })
-                    }
-                  >
-                    <option value="">
-                      Selecionar
-                    </option>
-
-                    {data.players
-                      .filter(
-                        (player) =>
-                          player.group_id ===
-                            edit.group_id &&
-                          player.active
-                      )
-                      .map((player) => (
-                        <option
-                          key={player.id}
-                          value={player.id}
-                        >
-                          {player.name}
-                        </option>
-                      ))}
-                  </select>
+                  <input
+                    value={playersById[edit.player_a_id]?.name || ""}
+                    disabled
+                  />
                 </label>
 
                 <label>
                   Resultado A
-
                   <input
                     type="number"
                     min="0"
-                    value={edit.score_a ?? ""}
+                    max={playersById[edit.player_a_id]?.handicap}
+                    value={edit.score_a}
                     onChange={(event) =>
                       setEdit({
                         ...edit,
-                        score_a:
-                          event.target.value,
+                        score_a: event.target.value,
                       })
                     }
                   />
@@ -1314,51 +832,23 @@ export default function TournamentSite({ profile, onLogout }) {
 
                 <label>
                   Jogador B
-
-                  <select
-                    value={edit.player_b_id}
-                    onChange={(event) =>
-                      setEdit({
-                        ...edit,
-                        player_b_id:
-                          event.target.value,
-                      })
-                    }
-                  >
-                    <option value="">
-                      Selecionar
-                    </option>
-
-                    {data.players
-                      .filter(
-                        (player) =>
-                          player.group_id ===
-                            edit.group_id &&
-                          player.active
-                      )
-                      .map((player) => (
-                        <option
-                          key={player.id}
-                          value={player.id}
-                        >
-                          {player.name}
-                        </option>
-                      ))}
-                  </select>
+                  <input
+                    value={playersById[edit.player_b_id]?.name || ""}
+                    disabled
+                  />
                 </label>
 
                 <label>
                   Resultado B
-
                   <input
                     type="number"
                     min="0"
-                    value={edit.score_b ?? ""}
+                    max={playersById[edit.player_b_id]?.handicap}
+                    value={edit.score_b}
                     onChange={(event) =>
                       setEdit({
                         ...edit,
-                        score_b:
-                          event.target.value,
+                        score_b: event.target.value,
                       })
                     }
                   />
@@ -1366,17 +856,13 @@ export default function TournamentSite({ profile, onLogout }) {
 
                 <label>
                   Data e hora
-
                   <input
                     type="datetime-local"
-                    value={
-                      edit.scheduled_at || ""
-                    }
+                    value={edit.scheduled_at}
                     onChange={(event) =>
                       setEdit({
                         ...edit,
-                        scheduled_at:
-                          event.target.value,
+                        scheduled_at: event.target.value,
                       })
                     }
                   />
@@ -1384,18 +870,14 @@ export default function TournamentSite({ profile, onLogout }) {
 
                 <label>
                   Mesa
-
                   <input
                     type="number"
                     min="1"
-                    value={
-                      edit.table_number ?? ""
-                    }
+                    value={edit.table_number}
                     onChange={(event) =>
                       setEdit({
                         ...edit,
-                        table_number:
-                          event.target.value,
+                        table_number: event.target.value,
                       })
                     }
                   />
@@ -1405,26 +887,15 @@ export default function TournamentSite({ profile, onLogout }) {
 
             <div className="actions">
               <button
-                type="button"
                 className="secondary"
-                onClick={() =>
-                  setEdit(null)
-                }
-                disabled={saving}
+                type="button"
+                onClick={() => setEdit(null)}
               >
                 Cancelar
               </button>
 
-              <button
-                type="button"
-                onClick={() =>
-                  submit(editType)
-                }
-                disabled={saving}
-              >
-                {saving
-                  ? "A guardar..."
-                  : "Guardar"}
+              <button type="button" onClick={submitEdit}>
+                Guardar
               </button>
             </div>
           </div>
