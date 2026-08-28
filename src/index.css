@@ -826,3 +826,375 @@ tbody tr:hover {
   float: none;
   color: #f8fafc;
 }
+
+/* Acrescentar no final de src/index.css */
+
+.landing-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 15% 5%, rgba(251, 191, 36, 0.13), transparent 30%),
+    radial-gradient(circle at 85% 10%, rgba(56, 189, 248, 0.1), transparent 28%),
+    #020617;
+  color: #f8fafc;
+}
+
+.landing-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  min-height: 310px;
+  padding: 4rem max(1.25rem, calc((100% - 1180px) / 2));
+  overflow: hidden;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.78));
+}
+
+.landing-hero-glow {
+  position: absolute;
+  right: -80px;
+  bottom: -160px;
+  width: 440px;
+  height: 440px;
+  border-radius: 50%;
+  background: rgba(251, 191, 36, 0.08);
+  filter: blur(25px);
+  pointer-events: none;
+}
+
+.landing-brand {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+  max-width: 720px;
+}
+
+.landing-logo {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  border-radius: 18px;
+  color: #111827;
+  background: linear-gradient(145deg, #fcd34d, #f59e0b);
+  box-shadow: 0 20px 45px rgba(245, 158, 11, 0.22);
+}
+
+.landing-eyebrow,
+.landing-section-heading span,
+.login-kicker {
+  display: block;
+  margin-bottom: 0.55rem;
+  color: #fbbf24;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.landing-brand h1 {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(2.1rem, 5vw, 4.1rem);
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+}
+
+.landing-brand p {
+  max-width: 580px;
+  margin: 1rem 0 0;
+  color: #cbd5e1;
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  line-height: 1.6;
+}
+
+.landing-enter {
+  position: relative;
+  z-index: 1;
+  min-height: 52px;
+  padding: 0.9rem 1.25rem;
+  white-space: nowrap;
+  box-shadow: 0 15px 35px rgba(245, 158, 11, 0.2);
+}
+
+.landing-content {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2.2rem 0 0;
+}
+
+.landing-week {
+  padding-bottom: 3rem;
+}
+
+.landing-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.landing-section-heading h2 {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+}
+
+.landing-refresh {
+  min-height: 42px;
+  padding: 0.65rem 0.9rem;
+  color: #e2e8f0;
+  background: #172033;
+  border: 1px solid #29364d;
+}
+
+.landing-match-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.landing-match-card,
+.landing-empty {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.88);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.14);
+}
+
+.landing-match-card {
+  padding: 1.15rem;
+}
+
+.landing-match-meta,
+.landing-match-schedule {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.landing-match-meta {
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+}
+
+.landing-match-round,
+.landing-match-group {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.landing-match-round {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.landing-match-group {
+  color: #bae6fd;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.landing-match-schedule {
+  margin-bottom: 1rem;
+  color: #94a3b8;
+  font-size: 0.86rem;
+}
+
+.landing-match-schedule span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.landing-match-players {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.landing-match-players > div:last-child {
+  text-align: right;
+}
+
+.landing-match-players strong,
+.landing-match-players small {
+  display: block;
+}
+
+.landing-match-players strong {
+  overflow: hidden;
+  color: #ffffff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.landing-match-players small {
+  margin-top: 0.25rem;
+  color: #94a3b8;
+}
+
+.landing-match-players > span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.landing-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 105px;
+  padding: 1.2rem;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.landing-empty p {
+  margin: 0;
+}
+
+.landing-error {
+  padding: 0.9rem;
+  border-radius: 12px;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.45);
+}
+
+.landing-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 1.4rem 0 2rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.login-card {
+  width: min(430px, calc(100% - 2rem));
+  padding: 2rem;
+  border: 1px solid #29364d;
+  border-radius: 22px;
+  background: #0f172a;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.28);
+  text-align: center;
+}
+
+.login-card h1 {
+  color: #ffffff;
+}
+
+.login-card p {
+  color: #94a3b8;
+}
+
+.login-google-button,
+.login-back-button {
+  width: 100%;
+  margin-top: 0.8rem;
+}
+
+.login-back-button {
+  color: #e2e8f0;
+  background: #1e293b;
+}
+
+.spinning {
+  animation: landing-spin 0.9s linear infinite;
+}
+
+@keyframes landing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 760px) {
+  .landing-hero {
+    align-items: stretch;
+    flex-direction: column;
+    min-height: auto;
+    padding-top: 2.2rem;
+    padding-bottom: 2.2rem;
+  }
+
+  .landing-brand {
+    align-items: center;
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .landing-brand p {
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .landing-enter {
+    width: 100%;
+  }
+
+  .landing-match-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-section-heading {
+    align-items: center;
+  }
+
+  .landing-refresh span {
+    display: none;
+  }
+
+  .landing-footer {
+    align-items: center;
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+@media (max-width: 430px) {
+  .landing-content,
+  .landing-footer {
+    width: min(100% - 1.25rem, 1180px);
+  }
+
+  .landing-hero {
+    padding-right: 1rem;
+    padding-left: 1rem;
+  }
+
+  .landing-logo {
+    width: 56px;
+    height: 56px;
+    flex-basis: 56px;
+  }
+
+  .landing-match-card {
+    padding: 1rem;
+  }
+
+  .landing-match-players {
+    gap: 0.55rem;
+  }
+
+  .landing-match-players strong {
+    font-size: 0.92rem;
+  }
+}

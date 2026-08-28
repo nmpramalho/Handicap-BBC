@@ -1,0 +1,135 @@
+.landing-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(
+      circle at top,
+      rgba(251, 191, 36, 0.16),
+      transparent 38%
+    ),
+    #020617;
+}
+
+.landing-card {
+  width: min(100%, 500px);
+  padding: 40px 34px;
+  text-align: center;
+  color: #f8fafc;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 22px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.45);
+}
+
+.landing-logo {
+  display: grid;
+  place-items: center;
+  width: 82px;
+  height: 82px;
+  margin: 0 auto 20px;
+  color: #111827;
+  background: #fbbf24;
+  border-radius: 22px;
+  box-shadow: 0 16px 40px rgba(251, 191, 36, 0.18);
+}
+
+.landing-eyebrow {
+  margin: 0;
+  color: #fbbf24;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.landing-card h1 {
+  margin: 9px 0 14px;
+  color: #ffffff;
+  font-size: clamp(32px, 7vw, 44px);
+  line-height: 1.1;
+}
+
+.landing-description {
+  max-width: 390px;
+  margin: 0 auto 28px;
+  color: #cbd5e1;
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.google-login-button {
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 18px;
+  color: #111827;
+  font-size: 16px;
+  background: #fbbf24;
+  border: 1px solid #fcd34d;
+  border-radius: 13px;
+}
+
+.google-login-button:hover:not(:disabled) {
+  background: #fcd34d;
+}
+
+.google-login-button:disabled {
+  cursor: wait;
+  opacity: 0.75;
+}
+
+.landing-error {
+  margin: 16px 0 0;
+  padding: 12px;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.62);
+  border: 1px solid #991b1b;
+  border-radius: 10px;
+}
+
+.landing-note {
+  margin: 20px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.status-actions button,
+.status-button {
+  margin-top: 0;
+}
+
+@media (max-width: 560px) {
+  .landing-page {
+    padding: 14px;
+  }
+
+  .landing-card {
+    padding: 30px 20px;
+    border-radius: 18px;
+  }
+
+  .landing-logo {
+    width: 72px;
+    height: 72px;
+    border-radius: 19px;
+  }
+
+  .status-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .status-actions button {
+    width: 100%;
+  }
+}
