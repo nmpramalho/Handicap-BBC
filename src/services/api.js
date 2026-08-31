@@ -1,6 +1,6 @@
 import { supabase } from "../lib/supabase";
 
-const GROUP_COLUMNS = "id, group_name, created_at";
+const GROUP_COLUMNS = "id, group_name, phase, group_order, created_at";
 const PLAYER_COLUMNS = "id, name, handicap, active, created_at, group_id";
 const MATCH_COLUMNS = [
   "id",
@@ -17,6 +17,10 @@ const MATCH_COLUMNS = [
   "updated_at",
   "scheduled_at",
   "table_number",
+  "phase",
+  "secondary_group_id",
+  "match_code",
+  "penalty_winner_id",
 ].join(", ");
 
 const MATCH_ORDER = {
@@ -24,7 +28,7 @@ const MATCH_ORDER = {
   initial_2: 2,
   winners: 3,
   losers: 4,
-  decisive: 5,
+  knockout: 5,
 };
 
 const MATCH_ROUND = {
@@ -32,7 +36,7 @@ const MATCH_ROUND = {
   initial_2: 1,
   winners: 2,
   losers: 2,
-  decisive: 3,
+  knockout: 1,
 };
 
 function throwIfError(error) {
@@ -74,7 +78,9 @@ function normalizedMatchPayload(match) {
     group_id: match.group_id,
     round: getMatchRound(match.match_type),
     match_type: match.match_type,
-    match_order: getMatchOrder(match.match_type),
+    match_order: match.match_type === "knockout"
+      ? Number(match.match_order)
+      : getMatchOrder(match.match_type),
     player_a_id: match.player_a_id,
     player_b_id: match.player_b_id,
     score_a: nullableNumber(match.score_a),
@@ -82,6 +88,10 @@ function normalizedMatchPayload(match) {
     completed: Boolean(match.completed),
     scheduled_at: match.scheduled_at || null,
     table_number: nullableNumber(match.table_number),
+    phase: match.phase || "initial",
+    secondary_group_id: match.secondary_group_id || null,
+    match_code: match.match_code || null,
+    penalty_winner_id: match.penalty_winner_id || null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -201,18 +211,38 @@ function isCompleted(match, playersById) {
     return false;
   }
 
-  return (
-    hasReachedHandicap(match.score_a, playerA) !==
-    hasReachedHandicap(match.score_b, playerB)
-  );
+  const playerAReached = hasReachedHandicap(match.score_a, playerA);
+  const playerBReached = hasReachedHandicap(match.score_b, playerB);
+
+  if (playerAReached && playerBReached) {
+    return (
+      match.penalty_winner_id === match.player_a_id ||
+      match.penalty_winner_id === match.player_b_id
+    );
+  }
+
+  return playerAReached !== playerBReached;
 }
 
 function getWinnerId(match, playersById) {
   const playerA = playersById[match.player_a_id];
+  const playerB = playersById[match.player_b_id];
+  const playerAReached = hasReachedHandicap(match.score_a, playerA);
+  const playerBReached = hasReachedHandicap(match.score_b, playerB);
 
-  return hasReachedHandicap(match.score_a, playerA)
-    ? match.player_a_id
-    : match.player_b_id;
+  if (playerAReached && playerBReached) {
+    return match.penalty_winner_id || null;
+  }
+
+  if (playerAReached) {
+    return match.player_a_id;
+  }
+
+  if (playerBReached) {
+    return match.player_b_id;
+  }
+
+  return null;
 }
 
 function getLoserId(match, playersById) {
@@ -239,6 +269,7 @@ async function createProgressionMatch({
     completed: false,
     scheduled_at: null,
     table_number: null,
+    penalty_winner_id: null,
   });
 
   throwIfError(error);
@@ -406,46 +437,15 @@ export async function synchronizeGroupProgression(groupId) {
     );
   }
 
-  const refreshedMatchesResult = await supabase
-    .from("matches")
-    .select(MATCH_COLUMNS)
-    .eq("group_id", groupId);
+  // O cruzamento seguinte pertence à fase knockout.
+  // Não é criado um jogo decisivo dentro da série inicial.
+}
 
-  throwIfError(refreshedMatchesResult.error);
-
-  const refreshedByType = Object.fromEntries(
-    (refreshedMatchesResult.data || []).map((match) => [
-      match.match_type,
-      match,
-    ])
+export async function synchronizeKnockoutMatches() {
+  const { data, error } = await supabase.rpc(
+    "synchronize_knockout_matches"
   );
 
-  const winnersMatch = refreshedByType.winners;
-  const losersMatch = refreshedByType.losers;
-
-  if (
-    !isCompleted(winnersMatch, playersById) ||
-    !isCompleted(losersMatch, playersById)
-  ) {
-    return;
-  }
-
-  const decisivePlayers = {
-    playerAId: getLoserId(winnersMatch, playersById),
-    playerBId: getWinnerId(losersMatch, playersById),
-  };
-
-  if (!refreshedByType.decisive) {
-    await createProgressionMatch({
-      groupId,
-      matchType: "decisive",
-      ...decisivePlayers,
-    });
-  } else {
-    await updatePendingProgressionMatch(
-      refreshedByType.decisive,
-      decisivePlayers.playerAId,
-      decisivePlayers.playerBId
-    );
-  }
+  throwIfError(error);
+  return data ?? 0;
 }

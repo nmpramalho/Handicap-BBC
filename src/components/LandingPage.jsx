@@ -23,19 +23,21 @@ function endOfDay(date) {
   return result;
 }
 
-function formatTime(value) {
+function formatDateTime(value) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Data inválida";
+  }
+
   return new Intl.DateTimeFormat("pt-PT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function formatDate(value) {
-  return new Intl.DateTimeFormat("pt-PT", {
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+    hour12: false,
+  }).format(date);
 }
 
 function getMatchTypeName(matchType) {
@@ -44,6 +46,7 @@ function getMatchTypeName(matchType) {
     initial_2: "Jogo inicial 2",
     winners: "Jogo dos vencedores",
     losers: "Jogo dos derrotados",
+    knockout: "Jogo Knockout",
     decisive: "Jogo decisivo",
   };
 
@@ -64,16 +67,9 @@ function MatchCard({ match, showDate }) {
       </div>
 
       <div className="home-match-schedule">
-        {showDate && (
-          <span>
-            <CalendarDays size={16} />
-            {formatDate(match.scheduled_at)}
-          </span>
-        )}
-
         <span>
-          <Clock3 size={16} />
-          {formatTime(match.scheduled_at)}
+          {showDate ? <CalendarDays size={16} /> : <Clock3 size={16} />}
+          {formatDateTime(match.scheduled_at)}
         </span>
 
         {match.table_number && (
@@ -127,41 +123,71 @@ export default function LandingPage() {
         new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7)
       );
 
-      const { data, error: queryError } = await supabase
+      const { data: matchRows, error: matchError } = await supabase
         .from("matches")
-        .select(`
-          id,
-          round,
-          match_type,
-          scheduled_at,
-          table_number,
-          completed,
-          group:groups (
-            id,
-            group_name
-          ),
-          player_a:players!matches_player_a_id_fkey (
-            id,
-            name,
-            handicap
-          ),
-          player_b:players!matches_player_b_id_fkey (
-            id,
-            name,
-            handicap
-          )
-        `)
+        .select(
+          "id, group_id, player_a_id, player_b_id, round, match_type, phase, scheduled_at, table_number, completed"
+        )
         .not("scheduled_at", "is", null)
         .gte("scheduled_at", firstMoment.toISOString())
         .lte("scheduled_at", lastMoment.toISOString())
-        .eq("completed", false)
         .order("scheduled_at", { ascending: true });
 
-      if (queryError) {
-        throw queryError;
+      if (matchError) {
+        throw matchError;
       }
 
-      setMatches(data ?? []);
+      const groupIds = [
+        ...new Set(
+          (matchRows ?? [])
+            .map((match) => match.group_id)
+            .filter(Boolean)
+        ),
+      ];
+      const playerIds = [
+        ...new Set(
+          (matchRows ?? [])
+            .flatMap((match) => [match.player_a_id, match.player_b_id])
+            .filter(Boolean)
+        ),
+      ];
+
+      const groupsQuery = groupIds.length
+        ? supabase.from("groups").select("id, group_name").in("id", groupIds)
+        : Promise.resolve({ data: [], error: null });
+
+      const playersQuery = playerIds.length
+        ? supabase.from("players").select("id, name, handicap").in("id", playerIds)
+        : Promise.resolve({ data: [], error: null });
+
+      const [groupsResult, playersResult] = await Promise.all([
+        groupsQuery,
+        playersQuery,
+      ]);
+
+      if (groupsResult.error) {
+        throw groupsResult.error;
+      }
+
+      if (playersResult.error) {
+        throw playersResult.error;
+      }
+
+      const groupsById = Object.fromEntries(
+        (groupsResult.data ?? []).map((group) => [group.id, group])
+      );
+      const playersById = Object.fromEntries(
+        (playersResult.data ?? []).map((player) => [player.id, player])
+      );
+
+      setMatches(
+        (matchRows ?? []).map((match) => ({
+          ...match,
+          group: groupsById[match.group_id] ?? null,
+          player_a: playersById[match.player_a_id] ?? null,
+          player_b: playersById[match.player_b_id] ?? null,
+        }))
+      );
     } catch (loadError) {
       console.error("Erro ao carregar o calendário:", loadError);
       setError("Não foi possível carregar os jogos agendados.");
@@ -206,7 +232,7 @@ export default function LandingPage() {
     });
   }, [matches]);
 
-  const weekMatches = useMemo(() => {
+  const nextSevenDaysMatches = useMemo(() => {
     const todayEnd = endOfDay(new Date()).getTime();
 
     return matches.filter(
@@ -224,7 +250,7 @@ export default function LandingPage() {
 
           <div>
             <span className="home-eyebrow">Torneio de bilhar</span>
-            <h1>Handicap BBC 2026</h1>
+            <h1>2º Handicap BBC 2026</h1>
             <p>Calendário, jogos e resultados oficiais do torneio.</p>
           </div>
         </div>
@@ -280,27 +306,27 @@ export default function LandingPage() {
         <div className="home-section-heading">
           <div>
             <span>Próximos dias</span>
-            <h2>Jogos desta semana</h2>
+            <h2>Jogos nos próximos 7 dias</h2>
           </div>
         </div>
 
-        {!loadingSchedule && weekMatches.length > 0 ? (
+        {!loadingSchedule && nextSevenDaysMatches.length > 0 ? (
           <div className="home-match-grid">
-            {weekMatches.map((match) => (
+            {nextSevenDaysMatches.map((match) => (
               <MatchCard key={match.id} match={match} showDate />
             ))}
           </div>
         ) : (
           !loadingSchedule && (
             <EmptySchedule>
-              Não existem mais jogos agendados para os próximos sete dias.
+              Não existem jogos agendados para os próximos 7 dias.
             </EmptySchedule>
           )
         )}
       </section>
 
       <footer className="home-footer">
-        <strong>Handicap BBC 2026</strong>
+        <strong>2º Handicap BBC 2026</strong>
         <span>Resultados e calendário do torneio</span>
       </footer>
     </main>

@@ -98,7 +98,7 @@ export default function App() {
       <main className="status-page">
         <section className="status-card">
           <div className="status-logo">BBC</div>
-          <h1>Handicap BBC 2026</h1>
+          <h1>2º Handicap BBC 2026</h1>
           <p>A verificar a sessão...</p>
 
           <div className="loading-indicator" aria-label="A carregar">
@@ -120,7 +120,7 @@ export default function App() {
       <main className="status-page">
         <section className="status-card">
           <div className="status-logo">BBC</div>
-          <h1>Handicap BBC 2026</h1>
+          <h1>2º Handicap BBC 2026</h1>
           <p>A verificar a autorização...</p>
 
           <div className="loading-indicator" aria-label="A carregar">

@@ -1198,3 +1198,85 @@ tbody tr:hover {
     font-size: 0.92rem;
   }
 }
+
+
+.match-phase-tabs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:16px; }
+.match-phase-tabs button { width:100%; min-height:46px; }
+.match-phase-tabs button.active { color:#111827; background:#fbbf24; border-color:#fcd34d; }
+.phase-empty { margin-bottom:16px; color:#94a3b8; text-align:center; }
+@media (max-width:760px) { .match-phase-tabs { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:430px) { .match-phase-tabs { grid-template-columns:1fr; } }
+
+
+/* Seletor de data e hora dos jogos */
+.date-time-fieldset {
+  margin: 14px 0;
+  padding: 0;
+  border: 0;
+}
+
+.date-time-fieldset legend {
+  margin-bottom: 6px;
+  color: #cbd5e1;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.date-time-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(130px, 0.6fr);
+  gap: 12px;
+}
+
+.date-time-grid label {
+  margin: 0;
+}
+
+.date-time-fieldset > small {
+  display: block;
+  margin-top: 7px;
+  color: #94a3b8;
+}
+
+input[type="date"],
+input[type="time"] {
+  color-scheme: dark;
+}
+
+@media (max-width: 520px) {
+  .date-time-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Acrescentar ao final de src/index.css */
+.date-time-picker-field {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.date-time-picker-field > input {
+  margin-top: 0 !important;
+}
+
+.native-date-time-picker {
+  width: 48px;
+  padding: 0;
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.native-date-time-picker::-webkit-datetime-edit {
+  display: none;
+}
+
+.native-date-time-picker::-webkit-calendar-picker-indicator {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 12px;
+  cursor: pointer;
+}
