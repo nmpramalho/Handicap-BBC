@@ -325,3 +325,13 @@
     grid-template-columns: 1fr;
   }
 }
+
+.home-match-type {
+  max-width: 75%;
+  line-height: 1.25;
+}
+
+.home-login-error {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 1rem auto 0;
+}

@@ -1280,3 +1280,133 @@ input[type="time"] {
   padding: 12px;
   cursor: pointer;
 }
+
+/* Navegação e placeholders da Fase Diamante */
+.diamond-navigation {
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+}
+
+.diamond-navigation .diamond-final-button {
+  grid-column: span 1;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.diamond-standings-card {
+  margin-bottom: 16px;
+}
+
+.diamond-standings-card h3 {
+  margin-top: 0;
+}
+
+.diamond-leader {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.diamond-leader td:first-child,
+.diamond-leader td:nth-child(2) {
+  color: #6ee7b7;
+  font-weight: 800;
+}
+
+.diamond-pending-row td {
+  color: #64748b;
+  font-style: italic;
+}
+
+.diamond-placeholder-card {
+  border-style: dashed;
+  border-color: #475569;
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.diamond-placeholder-card > p {
+  color: #94a3b8;
+}
+
+.diamond-final-layout {
+  display: grid;
+  gap: 24px;
+}
+
+.diamond-final-round {
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid #1e293b;
+  border-radius: 16px;
+}
+
+.diamond-final-round > h3 {
+  margin: 0 0 14px;
+  color: #fbbf24;
+}
+
+.diamond-source-label {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+@media (max-width: 900px) {
+  .diamond-navigation {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .diamond-navigation .diamond-final-button {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 600px) {
+  .diamond-navigation {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .diamond-navigation .diamond-final-button {
+    grid-column: span 1;
+    font-size: 11px;
+  }
+
+  .diamond-final-round {
+    padding: 12px;
+  }
+}
+
+/* Agenda dentro da área autenticada */
+.authenticated-home {
+  width: 100%;
+}
+
+.embedded-schedule .home-content {
+  width: 100%;
+  margin: 0 0 1.4rem;
+  padding: 0;
+}
+
+.embedded-schedule .home-week-section {
+  padding-top: 1.2rem;
+}
+
+.embedded-schedule .home-section-heading {
+  margin-bottom: 1rem;
+}
+
+.embedded-schedule .home-match-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 760px) {
+  .embedded-schedule .home-match-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Administração no cabeçalho, disponível apenas para administradores */
+header .actions .header-admin-button.active {
+  color: #111827;
+  background: #fbbf24;
+  border-color: #fcd34d;
+}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   LogOut,
+  Home,
   RefreshCw,
   Users,
   Trophy,
@@ -21,7 +22,10 @@ import {
   ensureInitialMatches,
   synchronizeGroupProgression,
   synchronizeKnockoutMatches,
+  synchronizeDiamondPhase,
+  synchronizePlatinumPhase,
 } from "../services/api";
+import ScheduledMatches from "./ScheduledMatches";
 
 const EMPTY_PLAYER = {
   name: "",
@@ -40,7 +44,63 @@ const MATCH_TYPE_LABELS = {
   winners: "Jogo dos vencedores",
   losers: "Jogo dos derrotados",
   decisive: "Jogo decisivo",
+  diamond_group_1: "Jogo 1",
+  diamond_group_2: "Jogo 2",
+  diamond_group_3: "Jogo 3",
+  diamond_quarterfinal: "Quartos de final",
+  diamond_semifinal: "Meia-final",
+  diamond_final: "Final",
+  platinum_group_1: "Jogo 1",
+  platinum_group_2: "Jogo 2",
+  platinum_group_3: "Jogo 3",
+  platinum_quarterfinal: "Quartos de final",
+  platinum_semifinal: "Meia-final",
+  platinum_final: "Final",
 };
+
+const DIAMOND_GROUP_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const DIAMOND_GROUP_MATCH_TYPES = [
+  "diamond_group_1",
+  "diamond_group_2",
+  "diamond_group_3",
+];
+const DIAMOND_FINAL_ROUNDS = [
+  {
+    title: "Quartos de final",
+    matches: [
+      { code: "DQ1", label: "Q1", sourceA: "Vencedor do Grupo A", sourceB: "Vencedor do Grupo H" },
+      { code: "DQ2", label: "Q2", sourceA: "Vencedor do Grupo C", sourceB: "Vencedor do Grupo F" },
+      { code: "DQ3", label: "Q3", sourceA: "Vencedor do Grupo B", sourceB: "Vencedor do Grupo G" },
+      { code: "DQ4", label: "Q4", sourceA: "Vencedor do Grupo D", sourceB: "Vencedor do Grupo E" },
+    ],
+  },
+  {
+    title: "Meias-finais",
+    matches: [
+      { code: "DMF1", label: "MF1", sourceA: "Vencedor de Q2", sourceB: "Vencedor de Q3" },
+      { code: "DMF2", label: "MF2", sourceA: "Vencedor de Q1", sourceB: "Vencedor de Q4" },
+    ],
+  },
+  {
+    title: "Final",
+    matches: [
+      { code: "DF", label: "Final", sourceA: "Vencedor de MF2", sourceB: "Vencedor de MF1" },
+    ],
+  },
+];
+
+const PLATINUM_GROUP_MATCH_TYPES = [
+  "platinum_group_1",
+  "platinum_group_2",
+  "platinum_group_3",
+];
+const PLATINUM_FINAL_ROUNDS = DIAMOND_FINAL_ROUNDS.map((round) => ({
+  ...round,
+  matches: round.matches.map((match) => ({
+    ...match,
+    code: match.code.replace(/^D/, "P"),
+  })),
+}));
 
 const MATCH_TYPE_ORDER = {
   initial_1: 1,
@@ -48,6 +108,18 @@ const MATCH_TYPE_ORDER = {
   winners: 3,
   losers: 4,
   decisive: 5,
+  diamond_group_1: 1,
+  diamond_group_2: 2,
+  diamond_group_3: 3,
+  diamond_quarterfinal: 4,
+  diamond_semifinal: 5,
+  diamond_final: 6,
+  platinum_group_1: 1,
+  platinum_group_2: 2,
+  platinum_group_3: 3,
+  platinum_quarterfinal: 4,
+  platinum_semifinal: 5,
+  platinum_final: 6,
 };
 
 function formatDateTimeForInput(value) {
@@ -226,14 +298,19 @@ function getQualification(wins, losses) {
 }
 
 export default function TournamentSite({ profile, onLogout }) {
-  const [activeTab, setActiveTab] = useState("groups");
+  const [activeTab, setActiveTab] = useState("home");
   const [matchPhase, setMatchPhase] = useState("initial");
   const [data, setData] = useState({
     groups: [],
     players: [],
     matches: [],
+    groupMembers: [],
+    diamondStandings: [],
+    platinumStandings: [],
   });
   const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [selectedDiamondSection, setSelectedDiamondSection] = useState("A");
+  const [selectedPlatinumSection, setSelectedPlatinumSection] = useState("A");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [edit, setEdit] = useState(null);
@@ -273,7 +350,7 @@ export default function TournamentSite({ profile, onLogout }) {
 
   useEffect(() => {
     async function prepareSelectedGroup() {
-      if (!selectedGroupId || busy) {
+      if (!selectedGroupId || busy || matchPhase !== "initial") {
         return;
       }
 
@@ -290,7 +367,7 @@ export default function TournamentSite({ profile, onLogout }) {
     }
 
     prepareSelectedGroup();
-  }, [selectedGroupId]);
+  }, [selectedGroupId, matchPhase]);
 
   const playersById = useMemo(
     () =>
@@ -314,7 +391,7 @@ export default function TournamentSite({ profile, onLogout }) {
 
   const phaseMatches = useMemo(() => {
     const acceptedPhases = matchPhase === "knockout"
-      ? ["knockout", "diamond_knockout", "platinum_knockout"]
+      ? ["knockout"]
       : [matchPhase];
 
     return data.matches.filter((match) =>
@@ -326,21 +403,134 @@ export default function TournamentSite({ profile, onLogout }) {
     (group) => group.id === selectedGroupId
   );
 
-  const groupPlayers = data.players.filter(
-    (player) =>
-      player.group_id === selectedGroupId && player.active
+  const selectedDiamondGroup = useMemo(
+    () =>
+      data.groups.find(
+        (group) =>
+          group.phase === "diamond" &&
+          group.group_name === selectedDiamondSection
+      ) || null,
+    [data.groups, selectedDiamondSection]
+  );
+
+  const diamondMatchesByCode = useMemo(
+    () =>
+      Object.fromEntries(
+        data.matches
+          .filter((match) => match.phase === "diamond_knockout")
+          .map((match) => [match.match_code, match])
+      ),
+    [data.matches]
+  );
+
+  const selectedPlatinumGroup = useMemo(
+    () =>
+      data.groups.find(
+        (group) =>
+          group.phase === "platinum" &&
+          group.group_name === selectedPlatinumSection
+      ) || null,
+    [data.groups, selectedPlatinumSection]
+  );
+
+  const platinumMatchesByCode = useMemo(
+    () =>
+      Object.fromEntries(
+        data.matches
+          .filter((match) => match.phase === "platinum_knockout")
+          .map((match) => [match.match_code, match])
+      ),
+    [data.matches]
+  );
+
+  const selectedChampionshipSection =
+    matchPhase === "platinum" ? selectedPlatinumSection : selectedDiamondSection;
+  const selectedChampionshipGroup =
+    matchPhase === "platinum" ? selectedPlatinumGroup : selectedDiamondGroup;
+
+  const groupPlayers = useMemo(() => {
+    if (!["diamond", "platinum"].includes(matchPhase)) {
+      return data.players.filter(
+        (player) => player.group_id === selectedGroupId && player.active
+      );
+    }
+
+    const memberIds = new Set(
+      (data.groupMembers || [])
+        .filter(
+          (member) =>
+            member.group_id ===
+            (["diamond", "platinum"].includes(matchPhase)
+              ? selectedChampionshipGroup?.id
+              : selectedGroupId)
+        )
+        .map((member) => member.player_id)
+    );
+
+    return data.players.filter((player) => memberIds.has(player.id));
+  }, [
+    data.players,
+    data.groupMembers,
+    selectedGroupId,
+    selectedDiamondGroup,
+    selectedPlatinumGroup,
+    selectedChampionshipGroup,
+    matchPhase,
+  ]);
+
+  const diamondStandings = useMemo(
+    () =>
+      (data.diamondStandings || []).filter(
+        (standing) => standing.group_id === selectedDiamondGroup?.id
+      ),
+    [data.diamondStandings, selectedDiamondGroup]
+  );
+
+  const platinumStandings = useMemo(
+    () =>
+      (data.platinumStandings || []).filter(
+        (standing) => standing.group_id === selectedPlatinumGroup?.id
+      ),
+    [data.platinumStandings, selectedPlatinumGroup]
+  );
+
+  const championshipStandings =
+    matchPhase === "platinum" ? platinumStandings : diamondStandings;
+  const championshipMatchesByCode =
+    matchPhase === "platinum" ? platinumMatchesByCode : diamondMatchesByCode;
+  const championshipGroupMatchTypes =
+    matchPhase === "platinum"
+      ? PLATINUM_GROUP_MATCH_TYPES
+      : DIAMOND_GROUP_MATCH_TYPES;
+  const championshipFinalRounds =
+    matchPhase === "platinum" ? PLATINUM_FINAL_ROUNDS : DIAMOND_FINAL_ROUNDS;
+
+  const diamondKnockoutMatches = useMemo(
+    () =>
+      data.matches
+        .filter((match) => match.phase === "diamond_knockout")
+        .sort((first, second) =>
+          (first.match_order || 99) - (second.match_order || 99)
+        ),
+    [data.matches]
   );
 
   const groupMatches = useMemo(
     () =>
       phaseMatches
-        .filter((match) => match.group_id === selectedGroupId)
+        .filter(
+          (match) =>
+            match.group_id ===
+            (["diamond", "platinum"].includes(matchPhase)
+              ? selectedChampionshipGroup?.id
+              : selectedGroupId)
+        )
         .sort(
           (first, second) =>
             (MATCH_TYPE_ORDER[first.match_type] || 99) -
             (MATCH_TYPE_ORDER[second.match_type] || 99)
         ),
-    [phaseMatches, selectedGroupId]
+    [phaseMatches, selectedGroupId, selectedDiamondGroup, selectedPlatinumGroup, selectedChampionshipGroup, matchPhase]
   );
 
   const standings = useMemo(() => {
@@ -480,6 +670,16 @@ export default function TournamentSite({ profile, onLogout }) {
         if ((edit.phase || "initial") === "initial") {
           await synchronizeGroupProgression(edit.group_id);
           await synchronizeKnockoutMatches();
+          await synchronizeDiamondPhase();
+          await synchronizePlatinumPhase();
+        }
+
+        if (["knockout", "diamond", "diamond_knockout"].includes(edit.phase)) {
+          await synchronizeDiamondPhase();
+        }
+
+        if (["knockout", "platinum", "platinum_knockout"].includes(edit.phase)) {
+          await synchronizePlatinumPhase();
         }
       }
 
@@ -542,6 +742,17 @@ export default function TournamentSite({ profile, onLogout }) {
             Atualizar
           </button>
 
+          {isAdmin && (
+            <button
+              className={activeTab === "admin" ? "active header-admin-button" : "secondary header-admin-button"}
+              type="button"
+              onClick={() => setActiveTab("admin")}
+            >
+              <Settings size={16} />
+              Administração
+            </button>
+          )}
+
           <button
             className="secondary"
             type="button"
@@ -554,6 +765,15 @@ export default function TournamentSite({ profile, onLogout }) {
       </header>
 
       <nav>
+        <button
+          type="button"
+          className={activeTab === "home" ? "active" : ""}
+          onClick={() => setActiveTab("home")}
+        >
+          <Home size={17} />
+          Início
+        </button>
+
         <button
           type="button"
           className={activeTab === "groups" ? "active" : ""}
@@ -581,16 +801,6 @@ export default function TournamentSite({ profile, onLogout }) {
           Jogadores
         </button>
 
-        {isAdmin && (
-          <button
-            type="button"
-            className={activeTab === "admin" ? "active" : ""}
-            onClick={() => setActiveTab("admin")}
-          >
-            <Settings size={18} />
-            Administração
-          </button>
-        )}
       </nav>
 
       <main>
@@ -600,6 +810,12 @@ export default function TournamentSite({ profile, onLogout }) {
           <div className="card">A carregar...</div>
         ) : (
           <>
+            {activeTab === "home" && (
+              <section className="authenticated-home">
+                <ScheduledMatches embedded />
+              </section>
+            )}
+
             {activeTab === "matches" && (
               <div className="match-phase-tabs">
                 {[
@@ -614,6 +830,27 @@ export default function TournamentSite({ profile, onLogout }) {
                     className={matchPhase === phaseId ? "active" : "secondary"}
                     onClick={() => {
                       setMatchPhase(phaseId);
+
+                      if (phaseId === "diamond") {
+                        setSelectedDiamondSection("A");
+                        const diamondGroupA = data.groups.find(
+                          (group) =>
+                            group.phase === "diamond" && group.group_name === "A"
+                        );
+                        setSelectedGroupId(diamondGroupA?.id || "");
+                        return;
+                      }
+
+                      if (phaseId === "platinum") {
+                        setSelectedPlatinumSection("A");
+                        const platinumGroupA = data.groups.find(
+                          (group) =>
+                            group.phase === "platinum" && group.group_name === "A"
+                        );
+                        setSelectedGroupId(platinumGroupA?.id || "");
+                        return;
+                      }
+
                       const firstGroup = data.groups
                         .filter((group) => (group.phase || "initial") === phaseId)
                         .sort((first, second) =>
@@ -628,22 +865,66 @@ export default function TournamentSite({ profile, onLogout }) {
               </div>
             )}
 
-            {activeTab !== "admin" && matchPhase !== "knockout" && (
-              <div className="groups">
-                {(activeTab === "matches" ? phaseGroups : data.groups.filter((group) => (group.phase || "initial") === "initial")).map((group) => (
-                  <button
-                    key={group.id}
-                    type="button"
-                    className={
-                      selectedGroupId === group.id ? "active" : ""
-                    }
-                    onClick={() => setSelectedGroupId(group.id)}
-                  >
-                    {group.group_name}
-                  </button>
-                ))}
+            {activeTab === "matches" && ["diamond", "platinum"].includes(matchPhase) && (
+              <div className="groups diamond-navigation">
+                {[...DIAMOND_GROUP_NAMES, "final"].map((section) => {
+                  const isFinal = section === "final";
+                  const label = isFinal ? "Fase Final" : section;
+                  const active = selectedChampionshipSection === section;
+
+                  return (
+                    <button
+                      key={section}
+                      type="button"
+                      className={`${active ? "active" : ""} ${
+                        isFinal ? "diamond-final-button" : ""
+                      }`.trim()}
+                      onClick={() => {
+                        matchPhase === "platinum"
+                          ? setSelectedPlatinumSection(section)
+                          : setSelectedDiamondSection(section);
+
+                        if (isFinal) {
+                          setSelectedGroupId("");
+                          return;
+                        }
+
+                        const diamondGroup = data.groups.find(
+                          (group) =>
+                            group.phase === matchPhase &&
+                            group.group_name === section
+                        );
+                        setSelectedGroupId(diamondGroup?.id || "");
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             )}
+
+            {activeTab !== "admin" &&
+              matchPhase !== "knockout" &&
+              !(activeTab === "matches" && ["diamond", "platinum"].includes(matchPhase)) && (
+                <div className="groups">
+                  {(activeTab === "matches"
+                    ? phaseGroups
+                    : data.groups.filter(
+                        (group) => (group.phase || "initial") === "initial"
+                      )
+                  ).map((group) => (
+                    <button
+                      key={group.id}
+                      type="button"
+                      className={selectedGroupId === group.id ? "active" : ""}
+                      onClick={() => setSelectedGroupId(group.id)}
+                    >
+                      {group.group_name}
+                    </button>
+                  ))}
+                </div>
+              )}
 
             {activeTab === "groups" && (
               <section className="grid2">
@@ -718,114 +999,320 @@ export default function TournamentSite({ profile, onLogout }) {
               <section>
                 <div className="sectionhead">
                   <h2>
-                    {matchPhase === "initial" && `Fase Inicial · Grupo ${selectedGroup?.group_name || "–"}`}
+                    {matchPhase === "initial" &&
+                      `Fase Inicial · Grupo ${selectedGroup?.group_name || "–"}`}
                     {matchPhase === "knockout" && "Fase Knockout"}
-                    {matchPhase === "diamond" && `Fase Diamante · Grupo ${selectedGroup?.group_name || "–"}`}
-                    {matchPhase === "platinum" && `Fase Platina · Grupo ${selectedGroup?.group_name || "–"}`}
+                    {matchPhase === "diamond" &&
+                      (selectedDiamondSection === "final"
+                        ? "Fase Diamante · Fase Final"
+                        : `Fase Diamante · Grupo ${selectedDiamondSection}`)}
+                    {matchPhase === "platinum" &&
+                      (selectedPlatinumSection === "final"
+                        ? "Fase Platina · Fase Final"
+                        : `Fase Platina · Grupo ${selectedPlatinumSection}`)}
                   </h2>
                 </div>
 
-                {(matchPhase === "knockout" ? phaseMatches : groupMatches).length === 0 && (
-                  <div className="card phase-empty">Esta fase ainda não tem jogos criados.</div>
-                )}
+                {["diamond", "platinum"].includes(matchPhase) && selectedChampionshipSection !== "final" ? (
+                  <>
+                    <div className="card diamond-standings-card">
+                      <h3>Classificação do Grupo {selectedChampionshipSection}</h3>
+                      <div className="tablewrap">
+                        <table className="diamond-standings-table">
+                          <thead>
+                            <tr>
+                              <th>Pos.</th>
+                              <th>Jogador</th>
+                              <th>HC</th>
+                              <th>J</th>
+                              <th>V</th>
+                              <th>D</th>
+                              <th>Car.</th>
+                              <th>%</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[0, 1, 2].map((index) => {
+                              const standing = championshipStandings[index];
+                              return standing ? (
+                                <tr
+                                  key={standing.player_id}
+                                  className={
+                                    standing.provisional_position === 1
+                                      ? "diamond-leader"
+                                      : ""
+                                  }
+                                >
+                                  <td>{standing.provisional_position}</td>
+                                  <td>{standing.player_name}</td>
+                                  <td>{standing.handicap}</td>
+                                  <td>{standing.played}</td>
+                                  <td>{standing.wins}</td>
+                                  <td>{standing.losses}</td>
+                                  <td>{standing.total_caroms}</td>
+                                  <td>
+                                    {Number(standing.carom_percentage).toFixed(2)}%
+                                  </td>
+                                </tr>
+                              ) : (
+                                <tr key={`pending-standing-${index}`} className="diamond-pending-row">
+                                  <td>{index + 1}</td>
+                                  <td>Por decidir</td>
+                                  <td>–</td>
+                                  <td>–</td>
+                                  <td>–</td>
+                                  <td>–</td>
+                                  <td>–</td>
+                                  <td>–</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
 
-                <div className="cards">
-                  {(matchPhase === "knockout" ? phaseMatches : groupMatches).map((match) => {
-                    const playerA = playersById[match.player_a_id];
-                    const playerB = playersById[match.player_b_id];
-                    const completed = isMatchComplete(
-                      match,
-                      playersById
-                    );
-                    const winnerId = completed
-                      ? getWinnerId(match, playersById)
-                      : null;
+                    <div className="cards diamond-group-matches">
+                      {championshipGroupMatchTypes.map((matchType, index) => {
+                        const match = groupMatches.find(
+                          (candidate) => candidate.match_type === matchType
+                        );
+                        const playerA = match
+                          ? playersById[match.player_a_id]
+                          : null;
+                        const playerB = match
+                          ? playersById[match.player_b_id]
+                          : null;
+                        const winnerId = match && isMatchComplete(match, playersById)
+                          ? getWinnerId(match, playersById)
+                          : null;
 
-                    return (
-                      <article className="card" key={match.id}>
-                        {match.phase !== "knockout" && (
-                          <h3>
-                            {MATCH_TYPE_LABELS[match.match_type] ||
-                              `Jornada ${match.round}`}
-                          </h3>
-                        )}
-
-                        <small>
-                          {match.phase === "knockout"
-                            ? match.scheduled_at
-                              ? new Date(match.scheduled_at).toLocaleString(
-                                  "pt-PT",
-                                  {
+                        return (
+                          <article
+                            className={`card ${match ? "" : "diamond-placeholder-card"}`.trim()}
+                            key={matchType}
+                          >
+                            <h3>Jogo {index + 1}</h3>
+                            <small>
+                              {match?.scheduled_at
+                                ? new Date(match.scheduled_at).toLocaleString("pt-PT", {
                                     day: "2-digit",
                                     month: "2-digit",
                                     year: "numeric",
                                     hour: "2-digit",
                                     minute: "2-digit",
-                                  }
-                                )
-                              : "Sem horário"
-                            : `Jornada ${match.round}${
-                                match.scheduled_at
-                                  ? ` · ${new Date(
-                                      match.scheduled_at
-                                    ).toLocaleString("pt-PT", {
-                                      day: "2-digit",
-                                      month: "2-digit",
-                                      year: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}`
-                                  : " · Sem horário"
-                              }`}
-                          {match.table_number
-                            ? ` · Mesa ${match.table_number}`
-                            : ""}
-                        </small>
-
-                        <p
-                          className={
-                            winnerId === playerA?.id ? "win" : ""
-                          }
-                        >
-                          {playerA?.name} ({playerA?.handicap})
-                          <b>{match.score_a ?? "–"}</b>
-                        </p>
-
-                        <p
-                          className={
-                            winnerId === playerB?.id ? "win" : ""
-                          }
-                        >
-                          {playerB?.name} ({playerB?.handicap})
-                          <b>{match.score_b ?? "–"}</b>
-                        </p>
-
-                        {canManageMatches && (
-                          <div className="actions">
-                            <button
-                              type="button"
-                              onClick={() => openMatchForEditing(match)}
-                            >
-                              Editar
-                            </button>
-
-                            {isAdmin && (
-                              <button
-                                className="danger"
-                                type="button"
-                                onClick={() =>
-                                  removeRecord("match", match.id)
-                                }
-                              >
-                                <Trash2 size={15} />
-                              </button>
+                                    hour12: false,
+                                  })
+                                : "Sem horário"}
+                              {match?.table_number
+                                ? ` · Mesa ${match.table_number}`
+                                : ""}
+                            </small>
+                            <p className={winnerId === playerA?.id ? "win" : ""}>
+                              {playerA?.name || "Por decidir"}
+                              {playerA ? ` (${playerA.handicap})` : ""}
+                              <b>{match?.score_a ?? "–"}</b>
+                            </p>
+                            <p className={winnerId === playerB?.id ? "win" : ""}>
+                              {playerB?.name || "Por decidir"}
+                              {playerB ? ` (${playerB.handicap})` : ""}
+                              <b>{match?.score_b ?? "–"}</b>
+                            </p>
+                            {match && canManageMatches && (
+                              <div className="actions">
+                                <button
+                                  type="button"
+                                  onClick={() => openMatchForEditing(match)}
+                                >
+                                  Editar
+                                </button>
+                                {isAdmin && (
+                                  <button
+                                    className="danger"
+                                    type="button"
+                                    onClick={() => removeRecord("match", match.id)}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                )}
+                              </div>
                             )}
-                          </div>
-                        )}
-                      </article>
-                    );
-                  })}
-                </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : ["diamond", "platinum"].includes(matchPhase) ? (
+                  <div className="diamond-final-layout">
+                    {championshipFinalRounds.map((round) => (
+                      <section className="diamond-final-round" key={round.title}>
+                        <h3>{round.title}</h3>
+                        <div className="cards">
+                          {round.matches.map((definition) => {
+                            const match = championshipMatchesByCode[definition.code];
+                            const playerA = match
+                              ? playersById[match.player_a_id]
+                              : null;
+                            const playerB = match
+                              ? playersById[match.player_b_id]
+                              : null;
+                            const winnerId = match && isMatchComplete(match, playersById)
+                              ? getWinnerId(match, playersById)
+                              : null;
+
+                            return (
+                              <article
+                                className={`card ${match ? "" : "diamond-placeholder-card"}`.trim()}
+                                key={definition.code}
+                              >
+                                <h3>{definition.label}</h3>
+                                <small>
+                                  {match?.scheduled_at
+                                    ? new Date(match.scheduled_at).toLocaleString("pt-PT", {
+                                        day: "2-digit",
+                                        month: "2-digit",
+                                        year: "numeric",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        hour12: false,
+                                      })
+                                    : "Sem horário"}
+                                  {match?.table_number
+                                    ? ` · Mesa ${match.table_number}`
+                                    : ""}
+                                </small>
+                                <p className={winnerId === playerA?.id ? "win" : ""}>
+                                  <span>
+                                    {playerA?.name || "Por decidir"}
+                                    {!playerA && (
+                                      <small className="diamond-source-label">
+                                        {definition.sourceA}
+                                      </small>
+                                    )}
+                                  </span>
+                                  <b>{match?.score_a ?? "–"}</b>
+                                </p>
+                                <p className={winnerId === playerB?.id ? "win" : ""}>
+                                  <span>
+                                    {playerB?.name || "Por decidir"}
+                                    {!playerB && (
+                                      <small className="diamond-source-label">
+                                        {definition.sourceB}
+                                      </small>
+                                    )}
+                                  </span>
+                                  <b>{match?.score_b ?? "–"}</b>
+                                </p>
+                                {match && canManageMatches && (
+                                  <div className="actions">
+                                    <button
+                                      type="button"
+                                      onClick={() => openMatchForEditing(match)}
+                                    >
+                                      Editar
+                                    </button>
+                                  </div>
+                                )}
+                              </article>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    {(matchPhase === "knockout" ? phaseMatches : groupMatches)
+                      .length === 0 && (
+                      <div className="card phase-empty">
+                        Esta fase ainda não tem jogos criados.
+                      </div>
+                    )}
+                    <div className="cards">
+                      {(matchPhase === "knockout" ? phaseMatches : groupMatches).map(
+                        (match) => {
+                          const playerA = playersById[match.player_a_id];
+                          const playerB = playersById[match.player_b_id];
+                          const completed = isMatchComplete(match, playersById);
+                          const winnerId = completed
+                            ? getWinnerId(match, playersById)
+                            : null;
+
+                          return (
+                            <article className="card" key={match.id}>
+                              {match.phase !== "knockout" && (
+                                <h3>
+                                  {MATCH_TYPE_LABELS[match.match_type] ||
+                                    `Jornada ${match.round}`}
+                                </h3>
+                              )}
+                              <small>
+                                {match.phase === "knockout"
+                                  ? match.scheduled_at
+                                    ? new Date(match.scheduled_at).toLocaleString(
+                                        "pt-PT",
+                                        {
+                                          day: "2-digit",
+                                          month: "2-digit",
+                                          year: "numeric",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                          hour12: false,
+                                        }
+                                      )
+                                    : "Sem horário"
+                                  : `Jornada ${match.round}${
+                                      match.scheduled_at
+                                        ? ` · ${new Date(
+                                            match.scheduled_at
+                                          ).toLocaleString("pt-PT", {
+                                            day: "2-digit",
+                                            month: "2-digit",
+                                            year: "numeric",
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                            hour12: false,
+                                          })}`
+                                        : " · Sem horário"
+                                    }`}
+                                {match.table_number
+                                  ? ` · Mesa ${match.table_number}`
+                                  : ""}
+                              </small>
+                              <p className={winnerId === playerA?.id ? "win" : ""}>
+                                {playerA?.name} ({playerA?.handicap})
+                                <b>{match.score_a ?? "–"}</b>
+                              </p>
+                              <p className={winnerId === playerB?.id ? "win" : ""}>
+                                {playerB?.name} ({playerB?.handicap})
+                                <b>{match.score_b ?? "–"}</b>
+                              </p>
+                              {canManageMatches && (
+                                <div className="actions">
+                                  <button
+                                    type="button"
+                                    onClick={() => openMatchForEditing(match)}
+                                  >
+                                    Editar
+                                  </button>
+                                  {isAdmin && (
+                                    <button
+                                      className="danger"
+                                      type="button"
+                                      onClick={() => removeRecord("match", match.id)}
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </article>
+                          );
+                        }
+                      )}
+                    </div>
+                  </>
+                )}
               </section>
             )}
 

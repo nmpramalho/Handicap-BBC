@@ -2,6 +2,8 @@ import { supabase } from "../lib/supabase";
 
 const GROUP_COLUMNS = "id, group_name, phase, group_order, created_at";
 const PLAYER_COLUMNS = "id, name, handicap, active, created_at, group_id";
+const GROUP_MEMBER_COLUMNS = "id, group_id, player_id, position, created_at";
+const PHASE_STANDING_COLUMNS = "group_id, group_name, group_order, player_id, player_name, handicap, played, wins, losses, total_caroms, carom_percentage, provisional_position";
 const MATCH_COLUMNS = [
   "id",
   "group_id",
@@ -29,6 +31,18 @@ const MATCH_ORDER = {
   winners: 3,
   losers: 4,
   knockout: 5,
+  diamond_group_1: 1,
+  diamond_group_2: 2,
+  diamond_group_3: 3,
+  diamond_quarterfinal: 4,
+  diamond_semifinal: 5,
+  diamond_final: 6,
+  platinum_group_1: 1,
+  platinum_group_2: 2,
+  platinum_group_3: 3,
+  platinum_quarterfinal: 4,
+  platinum_semifinal: 5,
+  platinum_final: 6,
 };
 
 const MATCH_ROUND = {
@@ -37,6 +51,18 @@ const MATCH_ROUND = {
   winners: 2,
   losers: 2,
   knockout: 1,
+  diamond_group_1: 1,
+  diamond_group_2: 2,
+  diamond_group_3: 3,
+  diamond_quarterfinal: 4,
+  diamond_semifinal: 5,
+  diamond_final: 6,
+  platinum_group_1: 1,
+  platinum_group_2: 2,
+  platinum_group_3: 3,
+  platinum_quarterfinal: 4,
+  platinum_semifinal: 5,
+  platinum_final: 6,
 };
 
 function throwIfError(error) {
@@ -76,11 +102,11 @@ function getMatchRound(matchType) {
 function normalizedMatchPayload(match) {
   return {
     group_id: match.group_id,
-    round: getMatchRound(match.match_type),
+    round: Number(match.round ?? getMatchRound(match.match_type)),
     match_type: match.match_type,
-    match_order: match.match_type === "knockout"
-      ? Number(match.match_order)
-      : getMatchOrder(match.match_type),
+    match_order: Number(
+      match.match_order ?? getMatchOrder(match.match_type)
+    ),
     player_a_id: match.player_a_id,
     player_b_id: match.player_b_id,
     score_a: nullableNumber(match.score_a),
@@ -97,7 +123,14 @@ function normalizedMatchPayload(match) {
 }
 
 export async function loadData() {
-  const [groupsResult, playersResult, matchesResult] = await Promise.all([
+  const [
+    groupsResult,
+    playersResult,
+    matchesResult,
+    groupMembersResult,
+    diamondStandingsResult,
+    platinumStandingsResult,
+  ] = await Promise.all([
     supabase
       .from("groups")
       .select(GROUP_COLUMNS)
@@ -115,16 +148,38 @@ export async function loadData() {
       .select(MATCH_COLUMNS)
       .order("group_id")
       .order("match_order"),
+    supabase
+      .from("group_members")
+      .select(GROUP_MEMBER_COLUMNS)
+      .order("group_id")
+      .order("position"),
+    supabase
+      .from("diamond_group_standings")
+      .select(PHASE_STANDING_COLUMNS)
+      .order("group_order")
+      .order("provisional_position"),
+
+    supabase
+      .from("platinum_group_standings")
+      .select(PHASE_STANDING_COLUMNS)
+      .order("group_order")
+      .order("provisional_position"),
   ]);
 
   throwIfError(groupsResult.error);
   throwIfError(playersResult.error);
   throwIfError(matchesResult.error);
+  throwIfError(groupMembersResult.error);
+  throwIfError(diamondStandingsResult.error);
+  throwIfError(platinumStandingsResult.error);
 
   return {
     groups: groupsResult.data || [],
     players: playersResult.data || [],
     matches: matchesResult.data || [],
+    groupMembers: groupMembersResult.data || [],
+    diamondStandings: diamondStandingsResult.data || [],
+    platinumStandings: platinumStandingsResult.data || [],
   };
 }
 
@@ -444,6 +499,22 @@ export async function synchronizeGroupProgression(groupId) {
 export async function synchronizeKnockoutMatches() {
   const { data, error } = await supabase.rpc(
     "synchronize_knockout_matches"
+  );
+
+  throwIfError(error);
+  return data ?? 0;
+}
+
+export async function synchronizeDiamondPhase() {
+  const { data, error } = await supabase.rpc("synchronize_diamond_phase");
+  throwIfError(error);
+  return data ?? 0;
+}
+
+
+export async function synchronizePlatinumPhase() {
+  const { data, error } = await supabase.rpc(
+    "synchronize_platinum_phase"
   );
 
   throwIfError(error);
