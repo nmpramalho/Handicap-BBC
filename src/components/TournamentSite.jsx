@@ -10,6 +10,7 @@ import {
   Plus,
   Trash2,
   CalendarDays,
+  CalendarRange,
 } from "lucide-react";
 import {
   loadData,
@@ -26,6 +27,7 @@ import {
   synchronizePlatinumPhase,
 } from "../services/api";
 import ScheduledMatches from "./ScheduledMatches";
+import TableAvailability from "./TableAvailability";
 
 const EMPTY_PLAYER = {
   name: "",
@@ -744,6 +746,17 @@ export default function TournamentSite({ profile, onLogout }) {
 
           {isAdmin && (
             <button
+              className={activeTab === "availability" ? "active header-availability-button" : "secondary header-availability-button"}
+              type="button"
+              onClick={() => setActiveTab("availability")}
+            >
+              <CalendarRange size={16} />
+              Disponibilidade
+            </button>
+          )}
+
+          {isAdmin && (
+            <button
               className={activeTab === "admin" ? "active header-admin-button" : "secondary header-admin-button"}
               type="button"
               onClick={() => setActiveTab("admin")}
@@ -810,6 +823,10 @@ export default function TournamentSite({ profile, onLogout }) {
           <div className="card">A carregar...</div>
         ) : (
           <>
+            {activeTab === "availability" && isAdmin && (
+              <TableAvailability />
+            )}
+
             {activeTab === "home" && (
               <section className="authenticated-home">
                 <ScheduledMatches embedded />
@@ -905,6 +922,7 @@ export default function TournamentSite({ profile, onLogout }) {
             )}
 
             {activeTab !== "admin" &&
+              activeTab !== "availability" &&
               matchPhase !== "knockout" &&
               !(activeTab === "matches" && ["diamond", "platinum"].includes(matchPhase)) && (
                 <div className="groups">

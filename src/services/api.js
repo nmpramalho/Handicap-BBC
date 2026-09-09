@@ -520,3 +520,50 @@ export async function synchronizePlatinumPhase() {
   throwIfError(error);
   return data ?? 0;
 }
+
+
+export async function loadTableAvailability(startDate, endDate) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T23:59:59.999`);
+
+  const { data: matches, error: matchesError } = await supabase
+    .from("matches")
+    .select(MATCH_COLUMNS)
+    .not("scheduled_at", "is", null)
+    .not("table_number", "is", null)
+    .gte("scheduled_at", start.toISOString())
+    .lte("scheduled_at", end.toISOString())
+    .in("table_number", [1, 2, 3])
+    .order("scheduled_at", { ascending: true });
+
+  throwIfError(matchesError);
+
+  const playerIds = [
+    ...new Set(
+      (matches || [])
+        .flatMap((match) => [match.player_a_id, match.player_b_id])
+        .filter(Boolean)
+    ),
+  ];
+
+  if (playerIds.length === 0) {
+    return [];
+  }
+
+  const { data: players, error: playersError } = await supabase
+    .from("players")
+    .select("id, name, handicap")
+    .in("id", playerIds);
+
+  throwIfError(playersError);
+
+  const playersById = Object.fromEntries(
+    (players || []).map((player) => [player.id, player])
+  );
+
+  return (matches || []).map((match) => ({
+    ...match,
+    player_a: playersById[match.player_a_id] || null,
+    player_b: playersById[match.player_b_id] || null,
+  }));
+}
