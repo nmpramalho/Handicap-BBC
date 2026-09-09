@@ -498,6 +498,70 @@ export default function TournamentSite({ profile, onLogout }) {
 
   const championshipStandings =
     matchPhase === "platinum" ? platinumStandings : diamondStandings;
+
+  const championshipGroupRows = useMemo(() => {
+    const groupId = selectedChampionshipGroup?.id;
+
+    if (!groupId) {
+      return [1, 2, 3].map((position) => ({
+        position,
+        standing: null,
+      }));
+    }
+
+    const membersByPosition = Object.fromEntries(
+      (data.groupMembers || [])
+        .filter((member) => member.group_id === groupId)
+        .map((member) => [Number(member.position), member])
+    );
+
+    const standingsByPlayerId = Object.fromEntries(
+      championshipStandings.map((standing) => [
+        standing.player_id,
+        standing,
+      ])
+    );
+
+    const completedGroupMatches = data.matches.filter(
+      (match) =>
+        match.group_id === groupId &&
+        match.phase === matchPhase &&
+        [
+          `${matchPhase}_group_1`,
+          `${matchPhase}_group_2`,
+          `${matchPhase}_group_3`,
+        ].includes(match.match_type) &&
+        match.completed
+    ).length;
+
+    if (completedGroupMatches === 3 && championshipStandings.length === 3) {
+      return [...championshipStandings]
+        .sort(
+          (first, second) =>
+            first.provisional_position - second.provisional_position
+        )
+        .map((standing) => ({
+          position: standing.provisional_position,
+          standing,
+        }));
+    }
+
+    return [1, 2, 3].map((position) => {
+      const member = membersByPosition[position];
+      return {
+        position,
+        standing: member
+          ? standingsByPlayerId[member.player_id] || null
+          : null,
+      };
+    });
+  }, [
+    championshipStandings,
+    data.groupMembers,
+    data.matches,
+    matchPhase,
+    selectedChampionshipGroup,
+  ]);
   const championshipMatchesByCode =
     matchPhase === "platinum" ? platinumMatchesByCode : diamondMatchesByCode;
   const championshipGroupMatchTypes =
@@ -922,7 +986,6 @@ export default function TournamentSite({ profile, onLogout }) {
             )}
 
             {activeTab !== "admin" &&
-              activeTab !== "availability" &&
               matchPhase !== "knockout" &&
               !(activeTab === "matches" && ["diamond", "platinum"].includes(matchPhase)) && (
                 <div className="groups">
@@ -1050,18 +1113,18 @@ export default function TournamentSite({ profile, onLogout }) {
                             </tr>
                           </thead>
                           <tbody>
-                            {[0, 1, 2].map((index) => {
-                              const standing = championshipStandings[index];
+                            {championshipGroupRows.map(({ position, standing }) => {
                               return standing ? (
                                 <tr
-                                  key={standing.player_id}
+                                  key={`${position}-${standing.player_id}`}
                                   className={
+                                    standing.played === 2 &&
                                     standing.provisional_position === 1
                                       ? "diamond-leader"
                                       : ""
                                   }
                                 >
-                                  <td>{standing.provisional_position}</td>
+                                  <td>{position}</td>
                                   <td>{standing.player_name}</td>
                                   <td>{standing.handicap}</td>
                                   <td>{standing.played}</td>
@@ -1073,8 +1136,8 @@ export default function TournamentSite({ profile, onLogout }) {
                                   </td>
                                 </tr>
                               ) : (
-                                <tr key={`pending-standing-${index}`} className="diamond-pending-row">
-                                  <td>{index + 1}</td>
+                                <tr key={`pending-standing-${position}`} className="diamond-pending-row">
+                                  <td>{position}</td>
                                   <td>Por decidir</td>
                                   <td>–</td>
                                   <td>–</td>
